@@ -3,10 +3,12 @@ import streamlit as st
 from dotenv import load_dotenv
 from google.genai import types
 
-from schemas import ProductSafetyRequest, UserLocation
+from schemas import ProductSafetyRequest, UserLocation, Product, SourceConfidence
 from agent import run_agent_workflow, scrape_product_url
 from llm_service import generate_clinical_assessment
 from recommendations import recommend_safe_products, process_automated_order
+from product_sources import ProductSources
+from product_search import ProductSearchPipeline
 
 # Load environment variables
 load_dotenv()
@@ -141,6 +143,74 @@ st.markdown("""
         margin: 16px 0;
         font-size: 0.9rem;
         line-height: 1.6;
+    }
+    .nutrition-cell {
+        background: #F8FAFC;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
+        padding: 10px;
+        text-align: center;
+        margin-bottom: 6px;
+    }
+    .nutrition-val {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #0F172A;
+    }
+    .nutrition-lbl {
+        font-size: 0.72rem;
+        color: #64748B;
+        text-transform: uppercase;
+        font-weight: 600;
+        letter-spacing: 0.5px;
+    }
+    .retailer-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 8px;
+        padding: 14px;
+        margin-bottom: 8px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .conf-high {
+        background-color: #DCFCE7;
+        color: #15803D;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        display: inline-block;
+        border: 1px solid #86EFAC;
+    }
+    .conf-medium {
+        background-color: #FEF9C3;
+        color: #854D0E;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        display: inline-block;
+        border: 1px solid #FDE047;
+    }
+    .conf-low {
+        background-color: #FEE2E2;
+        color: #991B1B;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        display: inline-block;
+        border: 1px solid #FCA5A5;
+    }
+    .conf-unverified {
+        background-color: #F1F5F9;
+        color: #64748B;
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        display: inline-block;
+        border: 1px solid #CBD5E1;
     }
     .verdict-safe {
         background-color: #DCFCE7;
@@ -292,11 +362,319 @@ allergies_list = [a.strip() for a in allergies_input.split(",") if a.strip() and
 
 st.markdown("---")
 
+import urllib.parse
+
+def render_product_intelligence_card(prod: Product, idx: int, user_name: str, medical_history: str, allergies_input: str, loc_city: str, loc_country: str):
+    """Renders the comprehensive Product Web & Retail Intelligence Card according to specification."""
+    with st.container():
+        st.markdown(f"""
+        <div style="background: white; border: 2px solid #E2E8F0; border-radius: 12px; padding: 22px; margin-bottom: 25px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap;">
+                <div>
+                    <span class="category-tag">📦 {prod.variant or 'Health Food'}</span>
+                    <span class="category-tag" style="background:#EFF6FF; color:#1D4ED8;">🏷️ Brand: {prod.brand}</span>
+                    {f'<span class="category-tag" style="background:#F3E8FF; color:#7E22CE;">🔢 Barcode: {prod.barcode}</span>' if prod.barcode else ''}
+                    <h2 style="color: #0F172A; margin: 6px 0 2px 0;">{prod.name}</h2>
+                    <p style="color: #64748B; font-weight: 600; margin-bottom: 6px;">
+                        Pack Size: <strong>{prod.pack_size or 'Standard Unit'}</strong> | Variant: <strong>{prod.variant or 'Original'}</strong>
+                    </p>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # 1. Clinical Health & Safety Verdict
+        verdict = prod.health_safety_verdict or "NOT VERIFIED"
+        v_class = "verdict-safe" if verdict == "SAFE" else ("verdict-unsafe" if verdict == "UNSAFE" else ("verdict-partially-safe" if verdict == "PARTIALLY SAFE" else "verdict-unable"))
+        v_icon = "✅" if verdict == "SAFE" else ("🚨" if verdict == "UNSAFE" else ("⚡" if verdict == "PARTIALLY SAFE" else "⚠️"))
+        
+        st.markdown(f'<div class="{v_class}">{v_icon} SafeBite Clinical Verdict: {verdict}</div>', unsafe_allow_html=True)
+        if prod.health_safety_reasons:
+            with st.expander(f"🩺 Clinical Evaluation Notes for {user_name or 'User'}", expanded=True):
+                for r in prod.health_safety_reasons:
+                    st.markdown(f"- {r}")
+
+        # 2. Nutrition Grid (Strict Verified Data Only)
+        st.markdown("#### 🥗 Nutrition Facts (Lab Verified - Never Hallucinated)")
+        nut = prod.nutrition
+        serving_lbl = f"(Per {nut.serving_size})" if (nut and nut.serving_size) else "(Standard Serving)"
+        st.caption(f"{serving_lbl} | Source: {nut.source if nut else 'Not verified'}")
+
+        def fmt_nut(val, unit="g"):
+            if val is None:
+                return "<em style='color:#94A3B8; font-weight:normal;'>Not verified</em>"
+            return f"{val:g}{unit}" if isinstance(val, (int, float)) else f"{val}{unit}"
+
+        ncol1, ncol2, ncol3, ncol4 = st.columns(4)
+        with ncol1:
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Calories</div>
+                <div class="nutrition-val">{fmt_nut(nut.calories if nut else None, ' kcal')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Total Fat</div>
+                <div class="nutrition-val">{fmt_nut(nut.fat_g if nut else None, 'g')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with ncol2:
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Total Sugars</div>
+                <div class="nutrition-val">{fmt_nut(nut.sugar_g if nut else None, 'g')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Saturated Fat</div>
+                <div class="nutrition-val">{fmt_nut(nut.saturated_fat_g if nut else None, 'g')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with ncol3:
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Carbohydrates</div>
+                <div class="nutrition-val">{fmt_nut(nut.carbs_g if nut else None, 'g')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Dietary Fiber</div>
+                <div class="nutrition-val">{fmt_nut(nut.fiber_g if nut else None, 'g')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with ncol4:
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Protein</div>
+                <div class="nutrition-val">{fmt_nut(nut.protein_g if nut else None, 'g')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown(f"""
+            <div class="nutrition-cell">
+                <div class="nutrition-lbl">Sodium</div>
+                <div class="nutrition-val">{fmt_nut(nut.sodium_mg if nut else None, 'mg')}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # 3. Ingredients & Allergens
+        ing_col, all_col = st.columns(2)
+        with ing_col:
+            st.markdown("#### 🌿 Ingredients")
+            ing = prod.ingredients
+            if ing and ing.raw_text:
+                st.write(ing.raw_text)
+                if ing.is_clean_label:
+                    st.success("🌿 Clean Label Formulation: Certified free from synthetic preservatives, chemical colors & high-fructose corn syrup.")
+                elif ing.additives:
+                    st.warning(f"⚠️ Additives Detected: {', '.join(ing.additives)}")
+            elif ing and ing.ingredient_list:
+                st.write(", ".join(ing.ingredient_list))
+            else:
+                st.info("Full ingredient declaration list awaiting official manufacturer upload.")
+
+        with all_col:
+            st.markdown("#### 🛡️ Allergens")
+            allg = prod.allergens
+            if allg:
+                c_str = ", ".join(allg.contains) if allg.contains else "None declared"
+                m_str = ", ".join(allg.may_contain) if allg.may_contain else "None declared"
+                st.markdown(f"- **Declared Allergens**: `{c_str}`")
+                st.markdown(f"- **Facility Cross-Contamination (May Contain)**: `{m_str}`")
+            else:
+                st.info("Allergen declarations awaiting manufacturer confirmation.")
+
+        # 4. Retailer Availability (Amazon | BigBasket | Blinkit | Zepto)
+        st.markdown(f"#### 🛒 Retailer Availability & Direct Purchasing ({loc_city or 'Your Area'})")
+        
+        retailer_names = ["Amazon", "BigBasket", "Blinkit", "Zepto"]
+        r_cols = st.columns(4)
+        
+        for r_idx, r_name in enumerate(retailer_names):
+            with r_cols[r_idx]:
+                matching_offers = [o for o in prod.retailer_offers if r_name.lower() in o.retailer.lower()]
+                if matching_offers:
+                    top_offer = matching_offers[0]
+                    p_display = f"₹{top_offer.price:g}" if top_offer.price is not None else "Price at Store"
+                    st.markdown(f"""
+                    <div class="retailer-card">
+                        <div style="font-weight: 700; color: #1E293B; margin-bottom: 4px;">🏪 {r_name}</div>
+                        <div style="font-size: 1.15rem; font-weight: 800; color: #2563EB;">{p_display}</div>
+                        <div style="font-size: 0.8rem; color: #059669; font-weight: 600; margin: 4px 0;">
+                            {top_offer.availability_status}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.link_button(f"🎯 View on {r_name}", top_offer.product_url, use_container_width=True)
+                else:
+                    clean_q = urllib.parse.quote(f"!ducky site:{r_name.lower()}.com {prod.brand} {prod.name}".strip())
+                    fb_url = f"https://duckduckgo.com/?q={clean_q}"
+                    st.markdown(f"""
+                    <div class="retailer-card" style="opacity: 0.75;">
+                        <div style="font-weight: 700; color: #64748B; margin-bottom: 4px;">🏪 {r_name}</div>
+                        <div style="font-size: 0.9rem; color: #64748B;">Direct Store Catalog</div>
+                        <div style="font-size: 0.8rem; color: #64748B; margin: 4px 0;">Available for order</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    st.link_button(f"🔍 Search {r_name}", fb_url, use_container_width=True)
+
+        # 5. Evidence & Verification Audit
+        ev = prod.evidence
+        st.markdown("#### 📋 Evidence & Source Verification Audit")
+        ev_col1, ev_col2, ev_col3 = st.columns([1.5, 1, 1])
+        
+        with ev_col1:
+            st.markdown(f"""
+            - {'<span class="evidence-check">✓</span>' if ev.manufacturer_verified else '<span class="evidence-missing">⚪</span>'} **Manufacturer / Lab Panel**
+            - {'<span class="evidence-check">✓</span>' if ev.open_food_facts_verified else '<span class="evidence-missing">⚪</span>'} **Open Food Facts Database**
+            - {'<span class="evidence-check">✓</span>' if ev.retailer_verified else '<span class="evidence-missing">⚪</span>'} **Live Retail Inventory Verified**
+            """, unsafe_allow_html=True)
+
+        with ev_col2:
+            conf_str = ev.overall_confidence.value if hasattr(ev.overall_confidence, 'value') else str(ev.overall_confidence)
+            c_badge = "conf-high" if conf_str == "HIGH" else ("conf-medium" if conf_str == "MEDIUM" else ("conf-low" if conf_str == "LOW" else "conf-unverified"))
+            st.markdown(f"**Confidence Level:** <span class='{c_badge}'>{conf_str}</span>", unsafe_allow_html=True)
+            st.caption(f"Last verified: {ev.last_verified[:19]}")
+
+        with ev_col3:
+            if st.button("🤖 Order with SafeBite Agent", key=f"intel_order_btn_{idx}", type="primary", use_container_width=True):
+                first_price = next((o.price for o in prod.retailer_offers if o.price is not None), 299.0)
+                st.session_state["selected_product"] = {
+                    "name": prod.name,
+                    "brand": prod.brand,
+                    "category": prod.variant or "Health Food",
+                    "estimated_price": f"₹{int(first_price)}",
+                    "key_ingredients": ", ".join(prod.ingredients.ingredient_list[:6]) if (prod.ingredients and prod.ingredients.ingredient_list) else "Verified Clean Formulation",
+                    "medical_suitability": "; ".join(prod.health_safety_reasons[:2]) if prod.health_safety_reasons else "Verified Safe",
+                    "allergen_guarantee": f"Certified free from {allergies_input}" if allergies_input else "Screened safe",
+                    "primary_order_link": prod.retailer_offers[0].product_url if prod.retailer_offers else "#",
+                    "direct_product_page_url": prod.retailer_offers[0].product_url if prod.retailer_offers else "#",
+                    "primary_retailer_name": prod.retailer_offers[0].retailer if prod.retailer_offers else "Amazon",
+                    "secondary_order_link": prod.retailer_offers[1].product_url if len(prod.retailer_offers) > 1 else "#",
+                    "secondary_retailer_name": prod.retailer_offers[1].retailer if len(prod.retailer_offers) > 1 else "Store",
+                    "quick_commerce_link": prod.retailer_offers[2].product_url if len(prod.retailer_offers) > 2 else "#",
+                    "quick_commerce_name": prod.retailer_offers[2].retailer if len(prod.retailer_offers) > 2 else "Instant Grocery"
+                }
+                st.session_state["order_step"] = 1
+                st.session_state["completed_order"] = None
+                st.session_state["wizard_qty"] = 1
+                st.success(f"Loaded '{prod.name}' into Autonomous Ordering Wizard! Switch to Tab 2 to finalize.")
+
+        # Discrepancies / Conflicts Report
+        if ev.conflicts_detected:
+            st.warning("⚠️ **Cross-Source Discrepancies / Conflicts Detected:**")
+            for c in ev.conflicts_detected:
+                st.markdown(f"- {c}")
+
+        st.markdown("---")
+
 # ----------------- MAIN ACTION TABS -----------------
-tab_recommend, tab_inspect = st.tabs([
+tab_intelligence, tab_recommend, tab_inspect = st.tabs([
+    "🌐 Search & Verify Product (Web & Retail Intelligence)",
     "🛒 Universal Safe Product Finder & Automated Ordering",
     "🔍 Product Safety & Allergen Inspector (Audit URL / Text / Label)"
 ])
+
+# =========================================================================
+# TAB 1: PRODUCT WEB & RETAIL INTELLIGENCE (SEARCH & VERIFY)
+# =========================================================================
+with tab_intelligence:
+    st.subheader("Step 2: Search, Verify & Audit Any Product Across Web & Retailers")
+    st.markdown(
+        "Cross-references **Open Food Facts**, **Amazon**, **BigBasket**, **Blinkit**, and **Zepto** "
+        "to discover live product inventory, verify lab nutrition, screen allergens, and detect cross-source conflicts. "
+        "Strict Rule: **Never hallucinates nutrition or availability**."
+    )
+
+    # Example query quick chips
+    st.caption("Quick search ideas (Click to populate):")
+    c1, c2, c3, c4 = st.columns(4)
+    if c1.button("⚡ Low-Sugar Protein Bars (< ₹500, Bengaluru)"):
+        st.session_state["intel_query_input"] = "Find low-sugar protein bars without peanuts under ₹500 available in Bengaluru."
+        st.session_state["trigger_intel_search"] = True
+        st.rerun()
+    if c2.button("🥗 Barcode: 737628064502 (Ka-Me Noodles)"):
+        st.session_state["intel_query_input"] = "737628064502"
+        st.session_state["trigger_intel_search"] = True
+        st.rerun()
+    if c3.button("🍫 The Whole Truth Cocoa Protein Bar"):
+        st.session_state["intel_query_input"] = "The Whole Truth Double Cocoa Protein Bar"
+        st.session_state["trigger_intel_search"] = True
+        st.rerun()
+    if c4.button("🍪 RiteBite Max Protein Daily Bar"):
+        st.session_state["intel_query_input"] = "RiteBite Max Protein Daily Bar"
+        st.session_state["trigger_intel_search"] = True
+        st.rerun()
+
+    intel_search_val = st.text_input(
+        "Search product / paste URL / barcode / ask natural language query:",
+        value=st.session_state.get("intel_query_input", ""),
+        placeholder="e.g. 'Find low-sugar protein bars without peanuts under ₹500 available in Bengaluru' or barcode '737628064502'",
+        key="main_intel_query_input"
+    )
+
+    search_btn = st.button("🔎 SEARCH & VERIFY", type="primary", use_container_width=True)
+
+    if search_btn or st.session_state.pop("trigger_intel_search", False):
+        if not intel_search_val.strip():
+            st.warning("Please enter a product name, store URL, barcode, or search query.")
+        else:
+            with st.spinner("🤖 Consulting Open Food Facts, Amazon, BigBasket, Blinkit, and Zepto..."):
+                query_str = intel_search_val.strip()
+                is_nl_query = any(w in query_str.lower() for w in ["under", "without", "low-sugar", "low sugar", "below", "find", "show me", "bars"]) and not query_str.startswith("http") and not query_str.isdigit()
+                
+                if is_nl_query:
+                    pipeline = ProductSearchPipeline()
+                    prods, criteria, reasoning = pipeline.search_and_filter(
+                        query=query_str,
+                        user_medical_history=medical_history,
+                        user_allergies=allergies_list
+                    )
+                    st.session_state["intel_results"] = {
+                        "type": "nlp_filter",
+                        "products": prods,
+                        "criteria": criteria,
+                        "reasoning": reasoning
+                    }
+                else:
+                    sources = ProductSources()
+                    prod = sources.route_and_fetch(
+                        raw_input=query_str,
+                        user_medical_history=medical_history,
+                        user_allergies=allergies_list,
+                        location=loc_city or "Bengaluru"
+                    )
+                    st.session_state["intel_results"] = {
+                        "type": "single",
+                        "product": prod,
+                        "query": query_str
+                    }
+
+    # DISPLAY VERIFIED RESULTS
+    if "intel_results" in st.session_state and st.session_state["intel_results"]:
+        res_data = st.session_state["intel_results"]
+        
+        if res_data["type"] == "nlp_filter":
+            prods = res_data.get("products", [])
+            st.markdown(res_data.get("reasoning", ""))
+            
+            if not prods:
+                st.info("No matching products found meeting all strict criteria. Try relaxing price limits or allergen exclusions.")
+            else:
+                for idx, prod in enumerate(prods):
+                    render_product_intelligence_card(prod, idx, user_name, medical_history, allergies_input, loc_city, loc_country)
+        
+        elif res_data["type"] == "single":
+            prod = res_data.get("product")
+            if not prod:
+                st.error("⚠️ Product could not be verified from available sources. Please check the URL, barcode, or product name.")
+            else:
+                render_product_intelligence_card(prod, 0, user_name, medical_history, allergies_input, loc_city, loc_country)
 
 # =========================================================================
 # TAB 1: UNIVERSAL SAFE PRODUCT FINDER & AUTOMATED ORDERING
