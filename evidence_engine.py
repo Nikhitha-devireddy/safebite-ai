@@ -1,8 +1,19 @@
+"""
+SafeBite AI - Evidence Cross-Validation Engine
+Detects cross-source discrepancies across Open Food Facts, official brand packaging,
+and e-commerce retailer listings. Computes aggregate evidence provenance and confidence.
+Delegates clinical safety evaluation to the deterministic ClinicalRuleEngine.
+"""
+
 import re
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
 
-from schemas import Product, NutritionFacts, Ingredients, Allergens, RetailerOffer, Evidence, SourceConfidence
+from schemas import (
+    Product, NutritionFacts, Ingredients, Allergens,
+    RetailerOffer, Evidence, SourceConfidence, ClinicalStatus
+)
+from clinical_engine import ClinicalRuleEngine
 
 class EvidenceEngine:
     """
@@ -36,7 +47,7 @@ class EvidenceEngine:
         has_mfg = any("manufacturer" in s.lower() or "official" in s.lower() for s in sources_consulted)
 
         # 1. Cross-check nutrition conflicts if multiple values exist
-        # Check sugar declarations
+        # Check sugar declarations against marketing titles
         if nutrition and nutrition.sugar_g is not None:
             for offer in retailer_offers:
                 # If retailer text claims 'Sugar Free' or 'No Sugar' but sugar_g > 2.0g
@@ -47,7 +58,7 @@ class EvidenceEngine:
         if allergens:
             for offer in retailer_offers:
                 # If retailer claims nut-free but allergens contains peanut or tree nuts
-                has_nuts = any("nut" in c or "peanut" in c or "almond" in c for c in allergens.contains)
+                has_nuts = any("nut" in c.lower() or "peanut" in c.lower() or "almond" in c.lower() for c in allergens.contains)
                 if has_nuts and re.search(r"\b(?:nut\s*free|peanut\s*free)\b", offer.product_name, re.I):
                     conflicts.append(f"CRITICAL ALLERGEN CONFLICT: '{offer.retailer}' claims Nut-Free, but official ingredients contain {allergens.contains}.")
 
@@ -78,106 +89,35 @@ class EvidenceEngine:
     def evaluate_clinical_safety(
         cls,
         product: Product,
-        user_medical_history: str,
-        user_allergies: List[str]
+        user_medical_history: str = "",
+        user_allergies: Optional[List[str]] = None,
+        food_preferences: str = ""
     ) -> Tuple[str, List[str]]:
         """
-        Assesses product against user's specific health conditions and allergens.
-        Returns (Verdict: SAFE | PARTIALLY SAFE | UNSAFE | NOT VERIFIED, List[Reasons])
+        Assesses product against user's specific health conditions and allergies.
+        Integrates with the new deterministic ClinicalRuleEngine.
+        Returns:
+            (Verdict: 'SAFE' | 'PARTIALLY SAFE' | 'UNSAFE' | 'NOT VERIFIED', List[Reasons])
         """
-        reasons: List[str] = []
-        is_unsafe = False
-        is_partially_safe = False
+        user_allergies = user_allergies or []
+        overall_status, assessments, reasons = ClinicalRuleEngine.evaluate(
+            product=product,
+            user_medical_history=user_medical_history,
+            user_allergies=user_allergies,
+            food_preferences=food_preferences
+        )
 
-        allergens = product.allergens
-        ingredients = product.ingredients
-        nutrition = product.nutrition
+        # Store assessments directly on the product model
+        product.clinical_assessments = assessments
 
-        # Check if ingredients or allergens are unverified
-        if not ingredients or not ingredients.raw_text:
-            if not allergens or not allergens.contains:
-                return (
-                    "NOT VERIFIED",
-                    [
-                        "⚠️ Full ingredients and allergen declarations could not be verified from official sources.",
-                        "Strict SafeBite Rule: Unverified products are NEVER assumed safe for severe allergies or medical conditions."
-                    ]
-                )
-
-        # 1. STRICT ALLERGEN SCREENING
-        cleaned_allergens = [a.strip().lower() for a in user_allergies if a.strip() and a.lower() != "none"]
-        if allergens and cleaned_allergens:
-            all_product_allergens = set([a.lower() for a in allergens.contains] + [m.lower() for m in allergens.may_contain])
-            raw_ing_text = (ingredients.raw_text or "").lower()
-
-            for user_all in cleaned_allergens:
-                # Direct match in allergen tags
-                for pa in all_product_allergens:
-                    if user_all in pa or pa in user_all:
-                        is_unsafe = True
-                        reasons.append(f"🚨 STRICT ALLERGEN TRIGGER: Product contains '{pa}', matching your declared allergy to '{user_all}'.")
-
-                # Substring check in ingredients list
-                if not is_unsafe and user_all in raw_ing_text:
-                    is_unsafe = True
-                    reasons.append(f"🚨 STRICT ALLERGEN TRIGGER: Ingredient text explicitly includes '{user_all}'.")
-
-                # Derivative / hidden allergen check (e.g. dairy -> casein, whey; gluten -> wheat, barley)
-                if user_all in ("dairy", "milk"):
-                    # Exclude plant-based butters (cocoa butter, peanut butter, almond butter, shea butter)
-                    ing_without_plant_butters = re.sub(r"\b(cocoa|cacao|peanut|almond|cashew|shea|apple|mango|coconut)\s+butter\b", " ", raw_ing_text)
-                    dairy_derivatives = ["casein", "whey", "lactose", "milk solids", "ghee", "butterfat", "dairy butter"]
-                    if any(d in ing_without_plant_butters for d in dairy_derivatives) or re.search(r"\bbutter\b", ing_without_plant_butters):
-                        is_unsafe = True
-                        reasons.append(f"🚨 HIDDEN ALLERGEN: Found dairy derivative (casein / whey / milk solids / butter) in ingredients.")
-                
-                if user_all in ("gluten",) and any(g in raw_ing_text for g in ["wheat", "barley", "rye", "malt", "maltodextrin"]):
-                    is_unsafe = True
-                    reasons.append(f"🚨 HIDDEN GLUTEN: Found gluten derivative (wheat / barley / malt) in ingredients.")
-
-        # 2. MEDICAL HISTORY SCREENING
-        med_lower = user_medical_history.lower() if user_medical_history else ""
-
-        # Diabetes / Glycemic screening
-        if any(d in med_lower for d in ["diabetes", "diabetic", "insulin", "high sugar"]):
-            if nutrition and nutrition.sugar_g is not None:
-                if nutrition.sugar_g > 10.0:
-                    is_unsafe = True
-                    reasons.append(f"⚠️ HIGH GLYCEMIC RISK: Contains {nutrition.sugar_g}g sugars per serving (exceeds recommended safe limit of 5-10g for diabetes).")
-                elif nutrition.sugar_g > 5.0:
-                    is_partially_safe = True
-                    reasons.append(f"⚡ MODERATE SUGAR: Contains {nutrition.sugar_g}g sugars. Consume with medical discretion.")
-                else:
-                    reasons.append(f"✅ DIABETES COMPLIANT: Verified low-sugar formulation ({nutrition.sugar_g}g total sugar).")
-            elif ingredients and any(s in (ingredients.raw_text or "").lower() for s in ["high fructose corn syrup", "added sugar", "glucose syrup", "maltodextrin"]):
-                is_unsafe = True
-                reasons.append("⚠️ HIGH GLYCEMIC RISK: Contains high-glycemic syrups (corn syrup / maltodextrin / refined sugar).")
-
-        # Hypertension / Low Sodium screening
-        if any(h in med_lower for h in ["hypertension", "high blood pressure", "low sodium"]):
-            if nutrition and nutrition.sodium_mg is not None:
-                if nutrition.sodium_mg > 400.0:
-                    is_unsafe = True
-                    reasons.append(f"⚠️ HIGH SODIUM RISK: Contains {nutrition.sodium_mg}mg sodium per serving (exceeds safe threshold of 140-400mg).")
-                else:
-                    reasons.append(f"✅ HYPERTENSION COMPLIANT: Sodium is within clinical safe bounds ({nutrition.sodium_mg}mg).")
-
-        # Celiac Disease / IBS / GERD
-        if "celiac" in med_lower:
-            if not allergens or "gluten free" not in allergens.free_from:
-                if ingredients and any(g in (ingredients.raw_text or "").lower() for g in ["wheat", "barley", "rye", "oats", "spelt"]):
-                    is_unsafe = True
-                    reasons.append("🚨 CELIAC RISK: Product contains gluten-bearing grains.")
-
-        # Final verdict assignment
-        if is_unsafe:
-            verdict = "UNSAFE"
-        elif is_partially_safe or len(product.evidence.conflicts_detected) > 0:
-            verdict = "PARTIALLY SAFE"
-            if product.evidence.conflicts_detected:
-                reasons.extend([f"⚠️ Review Conflict: {c}" for c in product.evidence.conflicts_detected])
+        # Map ClinicalStatus enum to backward-compatible string verdict
+        if overall_status == ClinicalStatus.AVOID:
+            legacy_verdict = "UNSAFE"
+        elif overall_status == ClinicalStatus.CAUTION:
+            legacy_verdict = "PARTIALLY SAFE"
+        elif overall_status == ClinicalStatus.UNKNOWN:
+            legacy_verdict = "NOT VERIFIED"
         else:
-            verdict = "SAFE"
-            reasons.append("✅ Clinically cleared: Verified 100% free of declared personal allergens and compliant with your medical profile.")
+            legacy_verdict = "SAFE"
 
-        return verdict, reasons
+        return legacy_verdict, reasons

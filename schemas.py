@@ -1,9 +1,37 @@
+"""
+SafeBite AI - Core Data Schemas
+Structured, typed Pydantic models for product intelligence, clinical safety evaluation,
+nutrition facts, allergens, retailer offers, and source provenance.
+"""
+
 from enum import Enum
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
 # =========================================================================
-# EXISTING SCHEMAS (PRESERVED FOR FULL BACKWARD COMPATIBILITY)
+# ENUMS & CONSTANTS
+# =========================================================================
+
+class SourceConfidence(str, Enum):
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
+    UNVERIFIED = "UNVERIFIED"
+
+class ClinicalStatus(str, Enum):
+    CLEAR = "CLEAR"         # Verified safe, compliant with medical profile
+    CAUTION = "CAUTION"     # Traces, borderline nutrient thresholds, or mild caution
+    AVOID = "AVOID"         # Strictly contraindicated or allergen trigger
+    UNKNOWN = "UNKNOWN"     # Missing or unverified data (never defaults to CLEAR)
+
+class ProductIdentityConfidence(str, Enum):
+    EXACT = "EXACT"         # Barcode or exact brand + name + variant + pack size match
+    HIGH = "HIGH"           # High-confidence variant and brand match
+    POSSIBLE = "POSSIBLE"   # Brand matched, but flavor/pack size not fully confirmed
+    UNVERIFIED = "UNVERIFIED"
+
+# =========================================================================
+# USER PROFILE & LOCATION SCHEMAS (PRESERVED FOR FULL BACKWARD COMPATIBILITY)
 # =========================================================================
 
 class UserLocation(BaseModel):
@@ -22,31 +50,83 @@ class ProductSafetyRequest(BaseModel):
     product_source: str = Field(description="Either the URL link, the raw ingredient text, or image note provided by the user.")
     location: Optional[UserLocation] = None
 
+# =========================================================================
+# RETRIEVAL & OBSERVABILITY RESULT SCHEMA
+# =========================================================================
+
+class RetrievalResult(BaseModel):
+    success: bool = Field(default=False, description="True if retrieval succeeded with valid data")
+    status_code: Optional[int] = Field(default=None, description="HTTP response status code")
+    source: str = Field(description="Name of the data source or retailer")
+    url: str = Field(default="", description="Target URL consulted")
+    data: Any = Field(default=None, description="Extracted payload or response body")
+    error_type: Optional[str] = Field(default=None, description="Error category, e.g. 403_BLOCKED, 429_RATE_LIMIT, TIMEOUT")
+    error_message: str = Field(default="", description="Human-readable status or error explanation")
+    confidence: SourceConfidence = SourceConfidence.UNVERIFIED
+    retrieved_at: str = Field(default="", description="ISO timestamp of query execution")
+    duration_ms: float = Field(default=0.0, description="Execution latency in milliseconds")
+
+# =========================================================================
+# CLINICAL ASSESSMENT SCHEMA
+# =========================================================================
+
+class ClinicalAssessment(BaseModel):
+    condition: str = Field(description="Target medical condition or allergen category evaluated")
+    status: ClinicalStatus = Field(description="CLEAR, CAUTION, AVOID, or UNKNOWN")
+    reason: str = Field(description="Human-readable clinical rationale")
+    evidence: str = Field(description="Specific ingredient or numerical nutrition value backing the conclusion")
+    matched_factors: List[str] = Field(default_factory=list, description="Specific ingredients or tokens that triggered this rule")
+    confidence: SourceConfidence = Field(default=SourceConfidence.UNVERIFIED)
+    source: str = Field(default="SafeBite Clinical Engine")
 
 # =========================================================================
 # PRODUCT WEB & RETAIL INTELLIGENCE SCHEMAS
 # =========================================================================
 
-class SourceConfidence(str, Enum):
-    HIGH = "HIGH"
-    MEDIUM = "MEDIUM"
-    LOW = "LOW"
-    UNVERIFIED = "UNVERIFIED"
-
 class NutritionFacts(BaseModel):
     serving_size: Optional[str] = Field(default=None, description="Serving size, e.g., '100g' or '1 bar (50g)'")
     calories: Optional[float] = Field(default=None, description="Energy in kcal")
-    sugar_g: Optional[float] = Field(default=None, description="Total sugars in grams")
-    carbs_g: Optional[float] = Field(default=None, description="Total carbohydrates in grams")
-    protein_g: Optional[float] = Field(default=None, description="Protein content in grams")
-    fat_g: Optional[float] = Field(default=None, description="Total fat in grams")
+    sugar_g: Optional[float] = Field(default=None, description="Total sugars in grams (backward-compatible field)")
+    total_sugars: Optional[float] = Field(default=None, description="Total sugars in grams")
+    added_sugars: Optional[float] = Field(default=None, description="Added sugars in grams")
+    carbs_g: Optional[float] = Field(default=None, description="Total carbohydrates in grams (backward-compatible field)")
+    carbohydrates: Optional[float] = Field(default=None, description="Total carbohydrates in grams")
+    protein_g: Optional[float] = Field(default=None, description="Protein content in grams (backward-compatible field)")
+    protein: Optional[float] = Field(default=None, description="Protein content in grams")
+    fat_g: Optional[float] = Field(default=None, description="Total fat in grams (backward-compatible field)")
+    total_fat: Optional[float] = Field(default=None, description="Total fat in grams")
     saturated_fat_g: Optional[float] = Field(default=None, description="Saturated fat in grams")
+    trans_fat_g: Optional[float] = Field(default=None, description="Trans fat in grams")
     fiber_g: Optional[float] = Field(default=None, description="Dietary fiber in grams")
     sodium_mg: Optional[float] = Field(default=None, description="Sodium content in milligrams")
+    cholesterol_mg: Optional[float] = Field(default=None, description="Cholesterol in milligrams")
+    micronutrients: Dict[str, Any] = Field(default_factory=dict, description="Vitamins, minerals, potassium, calcium if reported")
     source: str = Field(default="Not verified", description="Primary data source (e.g. Open Food Facts, Manufacturer)")
     source_url: Optional[str] = None
     confidence: SourceConfidence = SourceConfidence.UNVERIFIED
     retrieved_at: Optional[str] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        """Synchronize alias fields for complete backward and forward compatibility."""
+        if self.sugar_g is not None and self.total_sugars is None:
+            self.total_sugars = self.sugar_g
+        elif self.total_sugars is not None and self.sugar_g is None:
+            self.sugar_g = self.total_sugars
+
+        if self.carbs_g is not None and self.carbohydrates is None:
+            self.carbohydrates = self.carbs_g
+        elif self.carbohydrates is not None and self.carbs_g is None:
+            self.carbs_g = self.carbohydrates
+
+        if self.protein_g is not None and self.protein is None:
+            self.protein = self.protein_g
+        elif self.protein is not None and self.protein_g is None:
+            self.protein_g = self.protein
+
+        if self.fat_g is not None and self.total_fat is None:
+            self.total_fat = self.fat_g
+        elif self.total_fat is not None and self.fat_g is None:
+            self.fat_g = self.total_fat
 
 class Ingredients(BaseModel):
     raw_text: Optional[str] = Field(default=None, description="Complete ingredient declaration string")
@@ -62,13 +142,14 @@ class Allergens(BaseModel):
     contains: List[str] = Field(default_factory=list, description="Declared primary allergens (e.g. peanuts, dairy, gluten)")
     may_contain: List[str] = Field(default_factory=list, description="Cross-contamination / shared facility traces")
     free_from: List[str] = Field(default_factory=list, description="Verified allergen-free claims")
+    cross_contact_warnings: List[str] = Field(default_factory=list, description="Explicit cross-contact declarations")
     source: str = Field(default="Not verified")
     source_url: Optional[str] = None
     confidence: SourceConfidence = SourceConfidence.UNVERIFIED
     retrieved_at: Optional[str] = None
 
 class RetailerOffer(BaseModel):
-    retailer: str = Field(description="Retailer name, e.g. Amazon, BigBasket, Blinkit, Zepto, Official Store")
+    retailer: str = Field(description="Retailer name, e.g. Amazon, BigBasket, Blinkit, Zepto, Flipkart, Instamart, JioMart")
     product_name: str = Field(description="Specific title listed on this retailer platform")
     price: Optional[float] = Field(default=None, description="Current selling price in numeric format")
     currency: str = Field(default="₹", description="Currency symbol")
@@ -97,11 +178,16 @@ class Product(BaseModel):
     variant: Optional[str] = Field(default=None, description="Flavor, type, or variant specification")
     pack_size: Optional[str] = Field(default=None, description="Canonical package net weight / volume")
     barcode: Optional[str] = Field(default=None, description="GTIN/EAN-13/UPC barcode if available")
+    category: Optional[str] = Field(default="General Grocery", description="Product category")
     description: Optional[str] = None
+    image_url: Optional[str] = Field(default=None, description="Product image URL if available")
     nutrition: Optional[NutritionFacts] = None
     ingredients: Optional[Ingredients] = None
     allergens: Optional[Allergens] = None
+    dietary_tags: List[str] = Field(default_factory=list, description="Vegan, Vegetarian, Gluten-Free, Diabetic-Friendly, etc.")
     retailer_offers: List[RetailerOffer] = Field(default_factory=list)
     evidence: Evidence
     health_safety_verdict: Optional[str] = Field(default="NOT VERIFIED", description="SAFE, UNSAFE, PARTIALLY SAFE, or NOT VERIFIED")
     health_safety_reasons: List[str] = Field(default_factory=list)
+    clinical_assessments: List[ClinicalAssessment] = Field(default_factory=list, description="Condition-specific clinical evaluation list")
+    identity_confidence: ProductIdentityConfidence = Field(default=ProductIdentityConfidence.UNVERIFIED, description="Confidence in variant matching")

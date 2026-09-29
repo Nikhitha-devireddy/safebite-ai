@@ -218,9 +218,11 @@ class NutritionExtractor:
 
         # Extract Ingredients
         raw_ing = None
-        ing_match = re.search(r"(?:ingredients?|contains?)\s*[:=]\s*([^\n\r]+(?:\n[^\n\r]+){0,3})", text, re.IGNORECASE)
+        ing_match = re.search(r"\bingredients?\s*[:=]\s*([^\n\r]+(?:\n[^\n\r]+){0,3})", text, re.IGNORECASE)
         if ing_match:
             raw_ing = ing_match.group(1).strip()
+            # If line ends with next section header like Nutrition Facts or Allergen Statement, strip it
+            raw_ing = re.split(r"\b(?:nutrition\s*facts|allergen\s*statement|contains)\b", raw_ing, flags=re.I)[0].strip()
         elif "ingredient" in text.lower():
             raw_ing = text.strip()
 
@@ -247,26 +249,43 @@ class NutritionExtractor:
             retrieved_at=now_str
         )
 
-        # Extract Allergens
+        # Extract Free-From Claims
+        free_from_list = []
+        free_match = re.search(r"\b(?:free\s*from|certified\s*free\s*of|zero)\s+([^\n\r\.]+)", text, re.IGNORECASE)
+        if free_match:
+            chunk = free_match.group(1).lower()
+            for allergen in cls.KNOWN_ALLERGENS:
+                if re.search(r"\b" + re.escape(allergen) + r"\b", chunk):
+                    free_from_list.append(allergen)
+
+        # Extract Allergens (Contains)
         contains_list = []
         may_contain_list = []
         text_lower = text.lower()
 
-        # Check explicit contains
-        contains_match = re.search(r"(?:contains|allergen(?:s)?(?:\s*declaration)?)\s*[:=]\s*([^\n\r\.]+)", text, re.IGNORECASE)
+        # Check explicit contains statement
+        contains_match = re.search(r"\b(?:contains|allergen(?:s)?(?:\s*declaration)?)\s*[:=]\s*([^\n\r\.]+)", text, re.IGNORECASE)
         if contains_match:
             chunk = contains_match.group(1).lower()
-            for allergen in cls.KNOWN_ALLERGENS:
-                if re.search(r"\b" + re.escape(allergen) + r"\b", chunk):
-                    contains_list.append(allergen)
+            # Check if negative claim e.g. "contains no allergens" or "contains: none"
+            if not re.search(r"\b(?:no|none|nil|zero)\b", chunk):
+                for allergen in cls.KNOWN_ALLERGENS:
+                    if re.search(r"\b" + re.escape(allergen) + r"\b", chunk):
+                        if allergen not in free_from_list:
+                            contains_list.append(allergen)
         else:
-            # Search entire text for declared allergens
-            for allergen in cls.KNOWN_ALLERGENS:
-                if re.search(r"\b" + re.escape(allergen) + r"\b", text_lower):
-                    contains_list.append(allergen)
+            # If no explicit contains line, scan ingredients text ONLY (not entire marketing text)
+            if raw_ing:
+                ing_lower = raw_ing.lower()
+                # Filter out plant butters
+                ing_clean = re.sub(r"\b(?:cocoa|cacao|peanut|almond|cashew|shea|apple|mango|coconut)\s+butter\b", " ", ing_lower)
+                for allergen in cls.KNOWN_ALLERGENS:
+                    if re.search(r"\b" + re.escape(allergen) + r"\b", ing_clean):
+                        if allergen not in free_from_list:
+                            contains_list.append(allergen)
 
         # Check may contain / cross contamination
-        may_match = re.search(r"(?:may\s*contain|manufactured\s*in\s*a\s*facility\s*that\s*also\s*processes?)\s*[:=]?\s*([^\n\r\.]+)", text, re.IGNORECASE)
+        may_match = re.search(r"\b(?:may\s*contain|manufactured\s*in\s*a\s*facility\s*that\s*also\s*processes?)\s*[:=]?\s*([^\n\r\.]+)", text, re.IGNORECASE)
         if may_match:
             chunk = may_match.group(1).lower()
             for allergen in cls.KNOWN_ALLERGENS:
@@ -276,10 +295,10 @@ class NutritionExtractor:
         allergens = Allergens(
             contains=list(set(contains_list)),
             may_contain=list(set(may_contain_list)),
-            free_from=[],
+            free_from=list(set(free_from_list)),
             source=source_name,
             source_url=source_url,
-            confidence=SourceConfidence.MEDIUM if (contains_list or raw_ing) else SourceConfidence.UNVERIFIED,
+            confidence=SourceConfidence.MEDIUM if (contains_list or free_from_list or raw_ing) else SourceConfidence.UNVERIFIED,
             retrieved_at=now_str
         )
 

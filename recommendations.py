@@ -128,27 +128,40 @@ def recommend_safe_products(
         if start_idx != -1 and end_idx != -1:
             cleaned = cleaned[start_idx:end_idx+1]
 
+    # Remove invalid trailing commas before closing brackets
+    cleaned_repaired = re.sub(r',\s*([\]\}])', r'\1', cleaned)
+
     try:
-        products = json.loads(cleaned)
-    except Exception as e:
-        print(f"JSON parsing error: {e}. Raw content: {cleaned[:300]}")
-        curr_sym = "₹" if "india" in loc_country.lower() else "$"
-        products = [
-            {
-                "id": "prod_1",
-                "name": f"Clean Label Natural {craving_query.title()}",
-                "brand": "Organic Health Brand",
-                "category": "Health Food",
-                "natural_highlight": f"Crafted with 100% natural ingredients tailored for {med_str}.",
-                "key_ingredients": "Organic whole food ingredients, sea salt, natural flavor",
-                "medical_suitability": f"Formulated specifically to support {med_str} without harmful additives.",
-                "allergen_guarantee": f"Certified 100% free from {allergies_str}.",
-                "local_availability": f"Available for direct delivery to {loc_city or 'your city'}, {loc_country}",
-                "local_retailer": "Amazon / Local Grocery",
-                "estimated_price": f"{curr_sym}299 - {curr_sym}399" if curr_sym == "₹" else f"{curr_sym}5.99 - {curr_sym}7.99",
-                "direct_search_query": f"organic {craving_query} {loc_country}"
-            }
-        ]
+        products = json.loads(cleaned_repaired)
+    except Exception:
+        try:
+            products = json.loads(cleaned)
+        except Exception as e:
+            print(f"JSON parsing error: {e}. Raw content: {cleaned[:300]}")
+            curr_sym = "₹" if "india" in loc_country.lower() else "$"
+            products = [
+                {
+                    "id": "prod_1",
+                    "name": f"Clean Label Natural {craving_query.title()}",
+                    "brand": "Organic Health Brand",
+                    "category": "Health Food",
+                    "natural_highlight": f"Crafted with 100% natural ingredients tailored for {med_str}.",
+                    "key_ingredients": "Organic whole food ingredients, sea salt, natural flavor",
+                    "medical_suitability": f"Formulated specifically to support {med_str} without harmful additives.",
+                    "allergen_guarantee": f"Certified 100% free from {allergies_str}.",
+                    "local_availability": f"Available for direct delivery to {loc_city or 'your city'}, {loc_country}",
+                    "local_retailer": "Amazon / Local Grocery",
+                    "estimated_price": f"{curr_sym}299 - {curr_sym}399" if curr_sym == "₹" else f"{curr_sym}5.99 - {curr_sym}7.99",
+                    "direct_search_query": f"organic {craving_query} {loc_country}"
+                }
+            ]
+
+    # Normalize fields (e.g. if key_ingredients is list instead of str)
+    for p in products:
+        if isinstance(p.get("key_ingredients"), list):
+            p["key_ingredients"] = ", ".join(p["key_ingredients"])
+        if isinstance(p.get("natural_highlight"), list):
+            p["natural_highlight"] = ", ".join(p["natural_highlight"])
 
     # Generate country-specific direct shopping & delivery links
     is_india = "india" in loc_country.lower()
