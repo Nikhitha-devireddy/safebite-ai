@@ -7,32 +7,70 @@ import groq
 # Load environment variables
 load_dotenv()
 
-# 1. Initialize Google Gemini Client
-gemini_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-gemini_client = genai.Client(api_key=gemini_key) if gemini_key else None
+def get_api_key(key_name: str) -> Optional[str]:
+    """
+    Retrieves API key from Streamlit secrets (for Streamlit Cloud deployment)
+    or from local environment variables (.env).
+    Strips accidental surrounding quotes and whitespace.
+    """
+    # 1. Check Streamlit Cloud Secrets
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key_name in st.secrets:
+            val = str(st.secrets[key_name]).strip().strip('"').strip("'")
+            if val:
+                return val
+    except Exception:
+        pass
 
-# 2. Initialize Groq Fallback Client
-groq_key = os.getenv("GROQ_API_KEY")
-groq_client = groq.Groq(api_key=groq_key) if groq_key else None
+    # 2. Check OS environment variables
+    val = os.getenv(key_name)
+    if val:
+        val = str(val).strip().strip('"').strip("'")
+        if val:
+            return val
+
+    return None
+
+def get_gemini_client() -> Optional[genai.Client]:
+    key = get_api_key("GOOGLE_API_KEY") or get_api_key("GEMINI_API_KEY")
+    if key:
+        try:
+            return genai.Client(api_key=key)
+        except Exception as e:
+            print(f"[Warning] Failed to initialize Gemini Client: {e}")
+    return None
+
+def get_groq_client() -> Optional[groq.Groq]:
+    key = get_api_key("GROQ_API_KEY")
+    if key:
+        try:
+            return groq.Groq(api_key=key)
+        except Exception as e:
+            print(f"[Warning] Failed to initialize Groq Client: {e}")
+    return None
 
 # Prioritized list of Google Gemini models with vision and reasoning capabilities
 GEMINI_MODELS = [
+    "gemini-3.7-flash",
     "gemini-3.5-flash",
     "gemini-3.8-flash",
     "gemini-flash-latest",
     "gemini-3.6-flash",
-    "gemini-3.7-flash",
 ]
 
 def generate_clinical_assessment(prompt: str, image_part: Optional[any] = None) -> Tuple[str, str]:
     """
     Executes clinical product safety evaluation.
-    Primary: Google Gemini model cascade (gemini-3.5-flash, gemini-3.8-flash, gemini-flash-latest).
+    Primary: Google Gemini model cascade (gemini-3.7-flash, gemini-3.5-flash, gemini-3.8-flash, gemini-flash-latest).
     Fallback (for text): Groq (openai/gpt-oss-120b / qwen/qwen3.8-27b).
     
     Returns:
         (report_text, provider_info)
     """
+    gemini_client = get_gemini_client()
+    groq_client = get_groq_client()
+
     # Multimodal image path: Requires Gemini Vision
     if image_part is not None:
         last_vision_err = None
@@ -101,4 +139,8 @@ def generate_clinical_assessment(prompt: str, image_part: Optional[any] = None) 
             except Exception as groq_err_2:
                 raise RuntimeError(f"Both Gemini cascade and Groq fallback failed. Groq: {groq_err_2}")
     
-    raise RuntimeError("No available LLM provider could fulfill the request.")
+    raise RuntimeError(
+        "No available LLM provider could fulfill the request. "
+        "Please check that GOOGLE_API_KEY and GROQ_API_KEY are properly configured in .env (for local run) "
+        "or in App Settings -> Secrets (for Streamlit Community Cloud)."
+    )
