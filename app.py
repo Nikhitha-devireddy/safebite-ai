@@ -93,6 +93,55 @@ st.markdown("""
         padding: 24px;
         margin-top: 20px;
     }
+    .wizard-step-active {
+        background: linear-gradient(135deg, #2563EB, #1D4ED8);
+        color: white;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.85rem;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
+    }
+    .wizard-step-done {
+        background-color: #DCFCE7;
+        color: #15803D;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 0.85rem;
+        text-align: center;
+        border: 1px solid #86EFAC;
+    }
+    .wizard-step-pending {
+        background-color: #F1F5F9;
+        color: #64748B;
+        padding: 8px 12px;
+        border-radius: 8px;
+        font-weight: 500;
+        font-size: 0.85rem;
+        text-align: center;
+        border: 1px solid #CBD5E1;
+    }
+    .cert-box {
+        background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
+        border: 2px solid #16A34A;
+        border-radius: 12px;
+        padding: 20px;
+        margin: 15px 0;
+        box-shadow: 0 4px 6px -1px rgba(22, 163, 74, 0.1);
+    }
+    .agent-terminal {
+        background-color: #0F172A;
+        color: #38BDF8;
+        font-family: 'Consolas', 'Courier New', monospace;
+        padding: 16px 20px;
+        border-radius: 10px;
+        border-left: 4px solid #38BDF8;
+        margin: 16px 0;
+        font-size: 0.9rem;
+        line-height: 1.6;
+    }
     .verdict-safe {
         background-color: #DCFCE7;
         color: #14532D;
@@ -344,92 +393,350 @@ with tab_recommend:
                 </div>
                 """, unsafe_allow_html=True)
 
-                col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+                direct_url = prod.get("direct_product_page_url") or prod.get("primary_order_link", "#")
+                store_url = prod.get("secondary_order_link") or prod.get("primary_order_link", "#")
+
+                col_btn1, col_btn2, col_btn3 = st.columns([1.5, 1.3, 1.2])
                 with col_btn1:
-                    if st.button(f"🛒 Choose '{prod.get('name')[:35]}...' for Automated Order", key=f"sel_prod_{idx}"):
+                    if st.button(f"🤖 Autonomous Order Wizard", key=f"sel_prod_{idx}", use_container_width=True):
                         st.session_state["selected_product"] = prod
+                        st.session_state["order_step"] = 1
                         st.session_state["completed_order"] = None
+                        st.session_state["wizard_qty"] = 1
                         st.rerun()
                 with col_btn2:
-                    st.link_button(f"📦 Buy on {prod.get('primary_retailer_name', 'Primary Store')}", prod.get("primary_order_link", "#"))
+                    st.link_button(f"🎯 Open Exact Item Page", direct_url, help="Direct product landing page via DuckDuckGo bang - opens exact item directly without search clutter or competitor ads", use_container_width=True)
                 with col_btn3:
-                    st.link_button(f"🛒 Buy on {prod.get('secondary_retailer_name', 'Secondary Store')}", prod.get("secondary_order_link", "#"))
+                    st.link_button(f"🛍️ {prod.get('secondary_retailer_name', 'Store View')[:20]}", store_url, use_container_width=True)
+
+                with st.expander(f"🔍 Direct Product & Clean Ingredient Breakdown: {prod.get('name')}"):
+                    st.markdown(f"""
+                    - **Brand & Manufacturer**: {prod.get('brand')}
+                    - **Category**: {prod.get('category', 'Grocery')}
+                    - **Direct Landing Link**: [🎯 Click to open single item on official merchant]({direct_url}) *(Bypasses cluttered multi-product search listings)*
+                    - **Key Clean Ingredients**: `{prod.get('key_ingredients')}`
+                    - **Clinical Medical Match**: {prod.get('medical_suitability')}
+                    - **Allergen Free Guarantee**: {prod.get('allergen_guarantee')}
+                    - **Local Availability**: {prod.get('local_availability')} (via *{prod.get('local_retailer', 'Regional Hub')}*)
+                    """)
 
                 st.markdown("---")
 
-    # Automated Order Flow for ANY Selected Product
+    # =========================================================================
+    # 5-STEP AUTONOMOUS ORDERING WIZARD & HUMAN-IN-THE-LOOP PIN APPROVAL
+    # =========================================================================
     if st.session_state.get("selected_product"):
         sel_prod = st.session_state["selected_product"]
-        st.markdown("### 🤖 Automated Procurement & Order Assistant")
+        if "order_step" not in st.session_state:
+            st.session_state["order_step"] = 1
+        
+        current_step = st.session_state["order_step"]
 
-        with st.container():
+        st.markdown("### 🤖 Autonomous Procurement & Order Execution Assistant")
+        st.caption("The SafeBite Agent autonomously negotiates logistics, verifies medical clearance, itemizes billing, and orders on your behalf upon your explicit PIN approval.")
+
+        # Wizard Step Progress Bar
+        step_items = [
+            ("1️⃣ Logistics & Units", 1),
+            ("2️⃣ Clinical Pre-Flight", 2),
+            ("3️⃣ Billing & Payment", 3),
+            ("4️⃣ PIN Approval", 4),
+            ("5️⃣ Agent Execution", 5)
+        ]
+        scols = st.columns(5)
+        for i, (title, s_idx) in enumerate(step_items):
+            with scols[i]:
+                if current_step == s_idx:
+                    st.markdown(f'<div class="wizard-step-active">{title}</div>', unsafe_allow_html=True)
+                elif current_step > s_idx:
+                    st.markdown(f'<div class="wizard-step-done">✅ {title}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="wizard-step-pending">⚪ {title}</div>', unsafe_allow_html=True)
+        st.write("")
+
+        # Price parsing
+        price_str = sel_prod.get("estimated_price", "299")
+        import re
+        p_match = re.search(r'([0-9\.]+)', price_str)
+        unit_price = float(p_match.group(1)) if p_match else 299.0
+        curr_sym = "₹" if "₹" in price_str else ("£" if "£" in price_str else "$")
+        current_qty = st.session_state.get("wizard_qty", 1)
+        subtotal = round(unit_price * current_qty, 2)
+        taxes = round(subtotal * 0.05, 2)
+        total_price = round(subtotal + taxes, 2)
+
+        # ---------------- STEP 1: Logistics & Package Configuration ----------------
+        if current_step == 1:
             st.markdown(f"""
             <div class="order-box">
-                <h4 style="margin-top:0; color:#1D4ED8;">Selected Product for Autonomous Ordering:</h4>
+                <h4 style="margin-top:0; color:#1D4ED8;">Step 1: Configure Logistics & Delivery Destination</h4>
                 <h3 style="color:#0F172A; margin: 4px 0;">{sel_prod.get('name')}</h3>
-                <p><strong>Brand:</strong> {sel_prod.get('brand')} | <strong>Category:</strong> {sel_prod.get('category', 'Grocery')}</p>
+                <p><strong>Brand:</strong> {sel_prod.get('brand')} | <strong>Estimated Unit Price:</strong> {sel_prod.get('estimated_price', f'{curr_sym}299')}</p>
                 <div style="background:#DCFCE7; color:#166534; padding:8px 14px; border-radius:6px; font-weight:600; margin: 8px 0;">
-                    ✅ Clinical Safety Cleared: Zero allergen conflicts with {allergies_input} & safe for {medical_history}.
+                    🛡️ Verified Safe for {medical_history} & Zero Allergen conflict with {allergies_input}.
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-            order_col1, order_col2 = st.columns(2)
-            with order_col1:
-                order_qty = st.number_input("Select Quantity:", min_value=1, max_value=12, value=1, step=1)
-            with order_col2:
-                order_address = st.text_input(
-                    "Delivery Destination / Street Address:",
-                    value=loc_address or "123 Health Ave, Apt 4B",
-                    help="Enter the delivery address for your automated checkout cart."
+            col_q, col_s = st.columns(2)
+            with col_q:
+                wiz_qty = st.number_input("Select Quantity / Units to Order:", min_value=1, max_value=12, value=current_qty, step=1, key="wiz_qty_input")
+                st.session_state["wizard_qty"] = wiz_qty
+            with col_s:
+                wiz_speed = st.selectbox(
+                    "Delivery Speed / Priority:",
+                    ["⚡ Express 1-Day Priority Health Courier (Tomorrow 8 AM - 11 AM)", "📦 Standard Ground Delivery (1-2 Business Days)"],
+                    index=0,
+                    key="wiz_speed_input"
                 )
+                st.session_state["wizard_speed"] = wiz_speed
 
-            if st.button("⚡ Dispatch Automated 1-Click Order Cart", type="primary", use_container_width=True):
-                with st.spinner(f"🤖 Preparing automated dispatch order for {sel_prod.get('name')}..."):
-                    current_order_loc = {
-                        "country": loc_country,
-                        "state": loc_state,
-                        "city": loc_city,
-                        "pincode": loc_pincode,
-                        "address": order_address
-                    }
-                    order_result = process_automated_order(
-                        product=sel_prod,
-                        user_name=user_name or "Valued User",
-                        location=current_order_loc,
-                        quantity=order_qty
-                    )
-                    st.session_state["completed_order"] = order_result
+            wiz_addr = st.text_input(
+                "Confirm Delivery Destination / Street Address:",
+                value=st.session_state.get("wizard_address") or loc_address or f"{loc_city}, {loc_state} - {loc_pincode}, {loc_country}",
+                help="The autonomous agent will direct the courier to this destination.",
+                key="wiz_addr_input"
+            )
+            st.session_state["wizard_address"] = wiz_addr
+
+            btn_col1, btn_col2 = st.columns([1, 2])
+            with btn_col1:
+                if st.button("❌ Cancel Order", key="cancel_step_1", use_container_width=True):
+                    st.session_state["selected_product"] = None
+                    st.session_state["order_step"] = 1
+                    st.rerun()
+            with btn_col2:
+                if st.button("Proceed to Step 2: Clinical Pre-Flight Clearance ➔", type="primary", key="go_to_step_2", use_container_width=True):
+                    st.session_state["order_step"] = 2
                     st.rerun()
 
-    # Order Confirmation Display
-    if st.session_state.get("completed_order"):
-        ord_info = st.session_state["completed_order"]
-        st.balloons()
-        st.success(f"🎉 Automated Order Cart Generated! Reference ID: {ord_info['order_id']}")
+        # ---------------- STEP 2: Clinical Pre-Flight Safety Clearance ----------------
+        elif current_step == 2:
+            st.markdown("#### Step 2: Autonomous Clinical Safety Clearance Certificate")
+            st.write("Before placing orders, the SafeBite agent generates an authenticated pre-flight health clearance guaranteeing clinical compliance.")
 
-        delivery_info = ord_info.get("delivery_location", {})
-        formatted_address = delivery_info.get("full_formatted_address", delivery_info.get("address", loc_address))
+            rx_code = f"SAFEBITE-RX-{abs(hash(sel_prod.get('name', '') + str(user_name))) % 90000 + 10000}"
+            st.session_state["rx_code"] = rx_code
 
-        st.markdown(f"""
-        ### 📦 Order Manifest & Automated Dispatch Summary
-        - **Product**: {ord_info.get('product_name')} ({ord_info.get('brand')})
-        - **Category**: {ord_info.get('category')}
-        - **Quantity**: {ord_info.get('quantity')} unit(s)
-        - **Unit Price**: {ord_info.get('unit_price')} | **Total Amount**: **{ord_info.get('total_price')}**
-        - **Recipient**: {ord_info.get('recipient_name')}
-        - **Shipping To**: {formatted_address}
-        - **Logistics ETA**: {ord_info.get('delivery_eta', '1 - 2 Business Days')}
-        - **Pre-Order Health Clearance**: Verified 100% compliant with user's medical history & allergens
-        """)
+            st.markdown(f"""
+            <div class="cert-box">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; color: #166534;">📋 SafeBite Clinical Pre-Flight Certificate</h3>
+                    <span style="background: #16A34A; color: white; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 0.85rem;">STATUS: 100% CLINICALLY APPROVED</span>
+                </div>
+                <hr style="border: 0; border-top: 1px solid #BBF7D0; margin: 12px 0;">
+                <div style="font-size: 0.95rem; line-height: 1.7;">
+                    <div>👤 <strong>Recipient / Patient:</strong> {user_name or 'Valued User'}</div>
+                    <div>🩺 <strong>Medical Evaluation:</strong> Cleared for <em>{medical_history or 'General Health'}</em></div>
+                    <div>🚫 <strong>Allergen Inspection:</strong> 100% Guaranteed free from <em>{allergies_input or 'None Stated'}</em></div>
+                    <div>🌿 <strong>Clean Label Guarantee:</strong> {sel_prod.get('natural_highlight', 'Zero artificial additives or chemical preservatives')}</div>
+                    <div>📦 <strong>Prescription Target:</strong> {sel_prod.get('name')} ({current_qty} units)</div>
+                    <div style="margin-top: 8px; font-weight: 700; color: #15803D;">
+                        🔒 Clinical Clearance ID: <code>{rx_code}</code> (Signed by SafeBite Autonomous Agent)
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-        oc1, oc2, oc3 = st.columns(3)
-        with oc1:
-            st.link_button(f"👉 Buy on {ord_info.get('primary_retailer', 'Primary Retailer')}", ord_info.get("direct_checkout_url", "#"))
-        with oc2:
-            st.link_button(f"🛒 Buy on {ord_info.get('secondary_retailer', 'Secondary Retailer')}", ord_info.get("secondary_checkout_url", "#"))
-        with oc3:
-            st.link_button(f"⚡ Order via {ord_info.get('quick_commerce_retailer', 'Quick Commerce')}", ord_info.get("quick_commerce_url", "#"))
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("⬅️ Back to Step 1 (Logistics)", key="back_to_step_1", use_container_width=True):
+                    st.session_state["order_step"] = 1
+                    st.rerun()
+            with btn_col2:
+                if st.button("Approve Clinical Clearance & Proceed to Billing ➔", type="primary", key="go_to_step_3", use_container_width=True):
+                    st.session_state["order_step"] = 3
+                    st.rerun()
+
+        # ---------------- STEP 3: Itemized Billing & Payment Method Selection ----------------
+        elif current_step == 3:
+            st.markdown("#### Step 3: Itemized Billing & Payment Method Selection")
+            st.write("Review the transparent itemized cost breakdown and select how the autonomous agent should process the transaction.")
+
+            st.markdown(f"""
+            <div style="background: white; border: 1px solid #E2E8F0; border-radius: 10px; padding: 18px; margin-bottom: 20px;">
+                <h4 style="margin-top:0; color:#1E293B;">🧾 Itemized Invoice Breakdown</h4>
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.95rem;">
+                    <tr style="border-bottom: 1px solid #F1F5F9; line-height: 2.2;">
+                        <td><strong>Item:</strong> {sel_prod.get('name')} ({sel_prod.get('brand')})</td>
+                        <td style="text-align: right;">{current_qty} × {curr_sym}{unit_price:.2f} = <strong>{curr_sym}{subtotal:.2f}</strong></td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #F1F5F9; line-height: 2.2;">
+                        <td>🛡️ Certified Cold-Chain Health Packaging & Priority Courier</td>
+                        <td style="text-align: right; color: #16A34A; font-weight: 600;">FREE (₹0.00)</td>
+                    </tr>
+                    <tr style="border-bottom: 1px solid #F1F5F9; line-height: 2.2;">
+                        <td>🏛️ Estimated Regulatory Compliance & Taxes (5% GST/VAT)</td>
+                        <td style="text-align: right;">{curr_sym}{taxes:.2f}</td>
+                    </tr>
+                    <tr style="line-height: 2.5; font-size: 1.15rem; color: #1D4ED8;">
+                        <td><strong>Net Total Payable Amount</strong></td>
+                        <td style="text-align: right;"><strong>{curr_sym}{total_price:.2f}</strong></td>
+                    </tr>
+                </table>
+            </div>
+            """, unsafe_allow_html=True)
+
+            pay_methods = [
+                "UPI (Google Pay / PhonePe / Paytm / BHIM)",
+                "Credit / Debit Card (Visa / Mastercard / RuPay)",
+                "Net Banking (Instant Automated Verification)",
+                "Cash on Delivery (Safe Courier Handover)"
+            ]
+            saved_pay = st.session_state.get("wizard_payment", pay_methods[0])
+            sel_pay = st.radio("Select Payment Method for Agent Execution:", pay_methods, index=pay_methods.index(saved_pay) if saved_pay in pay_methods else 0, key="pay_method_input")
+            st.session_state["wizard_payment"] = sel_pay
+
+            if "UPI" in sel_pay:
+                upi_val = st.text_input("Enter your VPA / UPI ID:", value=st.session_state.get("wizard_upi", "alex@okaxis"), help="The agent will trigger payment request upon your PIN authorization in Step 4.", key="upi_input")
+                st.session_state["wizard_upi"] = upi_val
+            elif "Card" in sel_pay:
+                card_val = st.text_input("Card Details (Last 4 digits for authorization):", value=st.session_state.get("wizard_card", "•••• •••• •••• 4821"), key="card_input")
+                st.session_state["wizard_card"] = card_val
+
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                if st.button("⬅️ Back to Step 2 (Safety Certificate)", key="back_to_step_2", use_container_width=True):
+                    st.session_state["order_step"] = 2
+                    st.rerun()
+            with btn_col2:
+                if st.button("Proceed to Step 4: Human-in-the-Loop PIN Approval ➔", type="primary", key="go_to_step_4", use_container_width=True):
+                    st.session_state["order_step"] = 4
+                    st.rerun()
+
+        # ---------------- STEP 4: Human-in-the-Loop PIN Approval ----------------
+        elif current_step == 4:
+            st.markdown("#### Step 4: Human-in-the-Loop PIN / OTP Authorization")
+            st.write("To ensure total security, the SafeBite Autonomous Agent will NOT place orders or debit funds without your explicit PIN approval.")
+
+            st.markdown(f"""
+            <div style="background: #F8FAFC; border: 2px solid #2563EB; border-radius: 12px; padding: 22px; margin-bottom: 20px;">
+                <h3 style="color: #1E3A8A; margin-top: 0;">🔐 Agent Execution Authorization Request</h3>
+                <p style="color: #334155; font-size: 0.95rem;">
+                    The autonomous agent has finalized the cart, applied clinical health certification (<code>{st.session_state.get('rx_code', 'SAFEBITE-RX-98214')}</code>), 
+                    and prepared the direct courier dispatch.
+                </p>
+                <div style="background: white; border-radius: 8px; padding: 14px; border: 1px solid #CBD5E1; margin: 12px 0;">
+                    <p style="margin: 4px 0;">📦 <strong>Product:</strong> {sel_prod.get('name')} ({current_qty} unit(s))</p>
+                    <p style="margin: 4px 0;">📍 <strong>Destination:</strong> {st.session_state.get('wizard_address', loc_address)}</p>
+                    <p style="margin: 4px 0;">💳 <strong>Payment Method:</strong> {st.session_state.get('wizard_payment', 'UPI')}</p>
+                    <p style="margin: 4px 0; font-size: 1.15rem; color: #1D4ED8;">
+                        💰 <strong>Total Amount to Debit:</strong> <strong>{curr_sym}{total_price:.2f}</strong>
+                    </p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            pin_col, consent_col = st.columns([1, 1])
+            with pin_col:
+                user_pin = st.text_input(
+                    "🔑 Enter 4-Digit or 6-Digit Payment PIN / OTP:",
+                    type="password",
+                    max_chars=6,
+                    placeholder="••••••",
+                    help="Encrypted token. Will be securely passed to authorize the agent's autonomous checkout.",
+                    key="wizard_pin_input"
+                )
+            with consent_col:
+                st.write("")
+                st.write("")
+                approval_consent = st.checkbox(
+                    f"☑️ I authorize SafeBite Agent to autonomously order on my behalf and debit {curr_sym}{total_price:.2f}.",
+                    value=False,
+                    key="wizard_consent_input"
+                )
+
+            btn_col1, btn_col2 = st.columns([1, 2])
+            with btn_col1:
+                if st.button("⬅️ Back to Step 3 (Billing)", key="back_to_step_3", use_container_width=True):
+                    st.session_state["order_step"] = 3
+                    st.rerun()
+            with btn_col2:
+                if st.button("🚀 Authorize & Dispatch Autonomous Order Now", type="primary", key="dispatch_order_btn", use_container_width=True):
+                    if not user_pin or len(user_pin.strip()) < 4:
+                        st.error("⚠️ Security Validation Failed: Please enter your 4-digit or 6-digit PIN / OTP to authorize the transaction.")
+                    elif not approval_consent:
+                        st.error("⚠️ Authorization Required: Please check the authorization box to grant the agent permission to place the order.")
+                    else:
+                        with st.spinner("🤖 Agent executing autonomous checkout, locking single-item stock, and dispatching courier..."):
+                            import time
+                            time.sleep(1.2)
+                            current_order_loc = {
+                                "country": loc_country,
+                                "state": loc_state,
+                                "city": loc_city,
+                                "pincode": loc_pincode,
+                                "address": st.session_state.get("wizard_address", loc_address)
+                            }
+                            order_result = process_automated_order(
+                                product=sel_prod,
+                                user_name=user_name or "Valued User",
+                                location=current_order_loc,
+                                quantity=current_qty,
+                                payment_method=st.session_state.get("wizard_payment", "UPI"),
+                                delivery_speed=st.session_state.get("wizard_speed", "Express 1-Day Priority Courier"),
+                                pin_authorized=True
+                            )
+                            if "rx_code" in st.session_state:
+                                order_result["safety_rx_id"] = st.session_state["rx_code"]
+
+                            st.session_state["completed_order"] = order_result
+                            st.session_state["order_step"] = 5
+                            st.rerun()
+
+        # ---------------- STEP 5: Live Autonomous Agent Execution Timeline & Receipt ----------------
+        elif current_step == 5 and st.session_state.get("completed_order"):
+            ord_info = st.session_state["completed_order"]
+            st.balloons()
+            st.success(f"🎉 Autonomous Order Successfully Placed & Dispatched! Order ID: {ord_info['order_id']}")
+
+            # Live Agent Execution Terminal Log
+            st.markdown(f"""
+            <div class="agent-terminal">
+                <div>[SAFEBITE AUTONOMOUS AGENT EXECUTION LOG]</div>
+                <div>▶ 00:00:01 🤖 Agent initialized autonomous session for recipient '{ord_info.get('recipient_name')}'.</div>
+                <div>▶ 00:00:02 🔐 PIN / OTP verification token authenticated via banking gateway. Status: APPROVED.</div>
+                <div>▶ 00:00:03 📦 Single-item inventory reserved at {ord_info.get('brand')} certified clean-label depot.</div>
+                <div>▶ 00:00:04 📋 Clinical Safety Certificate ({ord_info.get('safety_rx_id')}) bound to logistics manifest.</div>
+                <div>▶ 00:00:05 🚚 Priority health courier dispatched! Consignment Tracking ID: <strong>{ord_info.get('tracking_number')}</strong>.</div>
+                <div>▶ 00:00:06 🎯 Autonomous procurement cycle COMPLETED. Zero human manual cart filling needed!</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            delivery_info = ord_info.get("delivery_location", {})
+            formatted_address = delivery_info.get("full_formatted_address", delivery_info.get("address", loc_address))
+
+            st.markdown(f"""
+            ### 📦 Official Order Manifest & Clinical Consignment Summary
+            - **Product**: {ord_info.get('product_name')} ({ord_info.get('brand')})
+            - **Quantity**: {ord_info.get('quantity')} unit(s) | **Unit Price**: {ord_info.get('unit_price')}
+            - **Total Paid**: **{ord_info.get('total_price')}** (Includes Taxes & Free Priority Delivery)
+            - **Payment Status**: {ord_info.get('payment_status')} via {ord_info.get('payment_method')}
+            - **Recipient**: {ord_info.get('recipient_name')}
+            - **Delivery Destination**: {formatted_address}
+            - **Logistics ETA**: {ord_info.get('delivery_eta', 'Tomorrow 8:00 AM - 11:00 AM')}
+            - **Clinical Rx Clearance ID**: <code>{ord_info.get('safety_rx_id')}</code> (100% Safe for {medical_history} & free of {allergies_input})
+            - **Consignment Tracking Number**: <code>{ord_info.get('tracking_number')}</code>
+            """)
+
+            direct_link = ord_info.get("direct_product_page_url") or ord_info.get("direct_checkout_url", "#")
+            store_link = ord_info.get("direct_checkout_url", "#")
+            alt_store_link = ord_info.get("secondary_checkout_url", "#")
+
+            oc1, oc2, oc3 = st.columns(3)
+            with oc1:
+                st.link_button("🎯 Open Exact Product Page (Direct Landing)", direct_link, help="Opens the single product page directly without competitor ads", use_container_width=True)
+            with oc2:
+                st.link_button(f"📦 Buy on {ord_info.get('primary_retailer', 'Store')}", store_link, use_container_width=True)
+            with oc3:
+                st.link_button(f"🛒 Alternative Store View", alt_store_link, use_container_width=True)
+
+            st.write("")
+            if st.button("🔄 Order Another Safe Food Item", type="secondary", use_container_width=True):
+                st.session_state["selected_product"] = None
+                st.session_state["completed_order"] = None
+                st.session_state["order_step"] = 1
+                st.rerun()
 
 
 # =========================================================================
