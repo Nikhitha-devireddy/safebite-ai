@@ -3,10 +3,14 @@
 > **"Evidence before you eat."**  
 > An autonomous, research-grade food intelligence platform that performs deterministic clinical safety audits, screen-tests hidden industrial allergen derivatives, cross-validates nutrition across live retail inventories, and verifies product availability across global locations.
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=Nikhitha-devireddy/safebite-ai&branch=main&main_module=app.py)
+[![Live Demo Portal](https://img.shields.io/badge/Live%20Demo-Portal%20&%20Links-059669.svg)](LIVE_DEMO.md)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Architecture: Deterministic-First](https://img.shields.io/badge/architecture-deterministic--first-059669.svg)](#core-product-principles)
 [![Clinical Safety Engine](https://img.shields.io/badge/clinical--engine-100%25%20evidence--backed-green.svg)](#clinical-safety--verdict-engine)
-[![Tests: 41 Passed](https://img.shields.io/badge/tests-41%20passed-brightgreen.svg)](#testing--verification)
+[![Tests: 46 Passed](https://img.shields.io/badge/tests-46%20passed-brightgreen.svg)](#testing--verification)
+
+> 🚀 **Live Demo**: Deploy or test the application in 1-click via [Streamlit Cloud](https://share.streamlit.io/deploy?repository=Nikhitha-devireddy/safebite-ai&branch=main&main_module=app.py) or view [LIVE_DEMO.md](LIVE_DEMO.md) for direct permanent URLs.
 
 ---
 
