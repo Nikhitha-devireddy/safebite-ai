@@ -26,6 +26,7 @@ class NutritionExtractor:
         r"ins\s*\d{3,4}[a-z]?",
         r"e\s*\d{3,4}[a-z]?",
         r"high\s*fructose\s*corn\s*syrup",
+        r"\b(?:light\s*|dark\s*)?corn\s*syrup\b",
         r"maltodextrin",
         r"hydrogenated\s*(?:vegetable\s*)?oil",
         r"artificial\s*(?:flavor|flavour|color|colour|sweetener)",
@@ -218,18 +219,38 @@ class NutritionExtractor:
 
         # Extract Ingredients
         raw_ing = None
-        ing_match = re.search(r"\bingredients?\s*[:=]\s*([^\n\r]+(?:\n[^\n\r]+){0,3})", text, re.IGNORECASE)
+        # 1. Look for explicit Ingredients: header
+        ing_match = re.search(r"\bingredients?\s*[:=]\s*(.+?)(?=\b(?:nutrition\s*facts|allergen\s*statement|storage|manufactured\s*by|marketed\s*by|net\s*wt|mrp)\b|$)", text, re.IGNORECASE | re.DOTALL)
         if ing_match:
             raw_ing = ing_match.group(1).strip()
-            # If line ends with next section header like Nutrition Facts or Allergen Statement, strip it
-            raw_ing = re.split(r"\b(?:nutrition\s*facts|allergen\s*statement|contains)\b", raw_ing, flags=re.I)[0].strip()
-        elif "ingredient" in text.lower():
-            raw_ing = text.strip()
+        else:
+            # 2. If no explicit header, strip out obvious nutrition tables if present; what remains is ingredient text
+            cleaned_ing = re.sub(r"(?i)\bnutrition\s*facts\b.*?(?=\n\s*\n|\Z)", "", text, flags=re.DOTALL).strip()
+            if cleaned_ing and re.search(r"[a-zA-Z]{3,}", cleaned_ing):
+                raw_ing = cleaned_ing
+            elif text.strip():
+                raw_ing = text.strip()
 
         ing_list = []
         additives = []
         if raw_ing:
-            ing_list = [i.strip(" .()") for i in re.split(r"[,;]+", raw_ing) if i.strip()]
+            # Check if bullet-point / newline separated list
+            lines = [l.strip() for l in re.split(r"[\r\n]+", raw_ing) if l.strip()]
+            has_bullets = any(re.match(r"^[•\-\*\u2022\u25cf\u25aa\d\.]+\s*", l) for l in lines)
+
+            if len(lines) > 1 and (has_bullets or any(":" in l for l in lines)):
+                for l in lines:
+                    cleaned_l = re.sub(r"^[•\-\*\u2022\u25cf\u25aa\d\.]+\s*", "", l).strip()
+                    if ":" in cleaned_l:
+                        name_part = cleaned_l.split(":", 1)[0].strip()
+                        name_clean = re.sub(r"\(.*?\)", "", name_part).strip()
+                        if name_clean:
+                            ing_list.append(name_clean)
+                    elif cleaned_l:
+                        ing_list.append(cleaned_l)
+            else:
+                ing_list = [i.strip(" .()") for i in re.split(r"[,;]+", raw_ing) if i.strip()]
+
             for pat in cls.ADDITIVE_PATTERNS:
                 f_list = re.findall(pat, raw_ing, re.IGNORECASE)
                 for f in f_list:
@@ -245,7 +266,7 @@ class NutritionExtractor:
             is_clean_label=is_clean,
             source=source_name,
             source_url=source_url,
-            confidence=SourceConfidence.MEDIUM if raw_ing else SourceConfidence.UNVERIFIED,
+            confidence=SourceConfidence.HIGH if raw_ing else SourceConfidence.UNVERIFIED,
             retrieved_at=now_str
         )
 

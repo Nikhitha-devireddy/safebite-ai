@@ -187,5 +187,39 @@ class TestClinicalEngine(unittest.TestCase):
         status_vegan, _, _ = ClinicalRuleEngine.evaluate(product=gelatin_prod, food_preferences="Vegan")
         self.assertEqual(status_vegan, ClinicalStatus.AVOID)
 
+    def test_bulleted_ingredient_extraction_and_audit(self):
+        """Pasted bulleted ingredient lists without 'Ingredients:' header must parse and audit properly."""
+        from nutrition_extractor import NutritionExtractor
+        raw_input = """• Granulated sugar: Provides the main structure and sweetness.
+• Water: Used to bloom the gelatin and dissolve the sugar.
+• Unflavored gelatin: Acts as the gelling agent that gives marshmallows their spongy, bouncy texture.
+• Light corn syrup: Works as an invert sugar.
+• Salt: Enhances and balances the overall sweetness."""
+        nut, ing, allg = NutritionExtractor.extract_from_text(raw_input)
+        self.assertIsNotNone(ing.raw_text)
+        self.assertIn("Granulated sugar", ing.ingredient_list)
+        self.assertIn("Unflavored gelatin", ing.ingredient_list)
+        self.assertIn("Light Corn Syrup", ing.additives)
+
+        prod = Product(
+            id="SB-BULLET-001",
+            name="Marshmallow",
+            brand="Confectionery",
+            nutrition=nut,
+            ingredients=ing,
+            allergens=allg,
+            evidence=self.evidence
+        )
+        # Audit with no specified condition -> must generate Ingredient & Additive Screening
+        status, assessments, reasons = ClinicalRuleEngine.evaluate(prod)
+        self.assertEqual(status, ClinicalStatus.CLEAR)
+        self.assertEqual(len(assessments), 1)
+        self.assertEqual(assessments[0].condition, "Ingredient & Additive Screening")
+
+        # Audit with Vegan -> must flag gelatin
+        status_veg, assessments_veg, _ = ClinicalRuleEngine.evaluate(prod, food_preferences="Vegan")
+        self.assertEqual(status_veg, ClinicalStatus.AVOID)
+
 if __name__ == "__main__":
     unittest.main()
+
