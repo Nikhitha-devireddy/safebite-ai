@@ -794,20 +794,14 @@ with nav_check:
                             last_verified="Just now"
                         )
                     )
-                    verdict, reasons = ClinicalRuleEngine.evaluate(
+                    verdict, assessments, reasons = ClinicalRuleEngine.evaluate(
                         product=checked_product,
                         user_medical_history=st.session_state["medical_history"],
                         user_allergies=st.session_state["allergies_list"],
                         food_preferences=st.session_state["food_preferences"]
                     )
-                    checked_product.clinical_assessments = [
-                        a for a in ClinicalRuleEngine.evaluate(
-                            checked_product,
-                            st.session_state["medical_history"],
-                            st.session_state["allergies_list"],
-                            st.session_state["food_preferences"]
-                        )[1]
-                    ]
+                    checked_product.clinical_assessments = assessments
+                    checked_product.health_safety_reasons = reasons
                     # Map legacy verdict
                     if verdict == ClinicalStatus.AVOID:
                         checked_product.health_safety_verdict = "UNSAFE"
