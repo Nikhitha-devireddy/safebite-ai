@@ -1,0 +1,9 @@
+langgraph
+google-genai
+pydantic
+python-dotenv
+requests
+beautifulsoup4
+streamlit
+groq
+Pillow
