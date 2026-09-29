@@ -220,6 +220,38 @@ class TestClinicalEngine(unittest.TestCase):
         status_veg, assessments_veg, _ = ClinicalRuleEngine.evaluate(prod, food_preferences="Vegan")
         self.assertEqual(status_veg, ClinicalStatus.AVOID)
 
+    def test_pure_ingredient_evaluation_without_nutrition_table(self):
+        """Clinical safety must evaluate accurately from ingredients even when numerical nutrition table is absent."""
+        from nutrition_extractor import NutritionExtractor
+        
+        # Product 1: High sugar + salt, no nutrition table
+        candy_input = "Corn syrup, sugar, gelatin, salt, artificial flavor"
+        nut1, ing1, allg1 = NutritionExtractor.extract_from_text(candy_input)
+        candy_prod = Product(id="P1", name="Candy", brand="B", nutrition=nut1, ingredients=ing1, allergens=allg1, evidence=self.evidence)
+
+        # Diabetic check -> must flag sugar/syrups as AVOID
+        status_diab, ass_diab, _ = ClinicalRuleEngine.evaluate(candy_prod, user_medical_history="Type 2 Diabetes")
+        self.assertEqual(status_diab, ClinicalStatus.AVOID)
+        self.assertEqual(ass_diab[0].status, ClinicalStatus.AVOID)
+
+        # Hypertension check -> must flag salt as CAUTION
+        status_hyp, ass_hyp, _ = ClinicalRuleEngine.evaluate(candy_prod, user_medical_history="Hypertension")
+        self.assertEqual(status_hyp, ClinicalStatus.CAUTION)
+
+        # Product 2: Clean seed mix with no salt, no sugar, no nutrition table
+        clean_input = "Chia seeds, flaxseeds, pumpkin seeds, raw almonds, organic cinnamon"
+        nut2, ing2, allg2 = NutritionExtractor.extract_from_text(clean_input)
+        clean_prod = Product(id="P2", name="Seed Mix", brand="B", nutrition=nut2, ingredients=ing2, allergens=allg2, evidence=self.evidence)
+
+        # Diabetic check -> must evaluate as CLEAR
+        status_c_diab, ass_c_diab, _ = ClinicalRuleEngine.evaluate(clean_prod, user_medical_history="Type 2 Diabetes")
+        self.assertEqual(status_c_diab, ClinicalStatus.CLEAR)
+
+        # Hypertension check -> must evaluate as CLEAR
+        status_c_hyp, ass_c_hyp, _ = ClinicalRuleEngine.evaluate(clean_prod, user_medical_history="Hypertension")
+        self.assertEqual(status_c_hyp, ClinicalStatus.CLEAR)
+
 if __name__ == "__main__":
     unittest.main()
+
 

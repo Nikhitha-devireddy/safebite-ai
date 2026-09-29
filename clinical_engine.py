@@ -227,71 +227,124 @@ class ClinicalRuleEngine:
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
 
-        # High-glycemic syrup triggers
-        glycemic_syrups = [
+        # Comprehensive glycemic sweetener triggers in ingredients (deduplicating generic sugar)
+        glycemic_sugars = [
             "high fructose corn syrup", "corn syrup", "glucose syrup",
-            "maltodextrin", "dextrose", "invert sugar", "liquid glucose"
+            "maltodextrin", "dextrose", "invert sugar", "liquid glucose",
+            "granulated sugar", "cane sugar", "brown sugar", "powdered sugar",
+            "sucrose", "fructose", "maltose", "molasses", "honey", "agave",
+            "maple syrup", "malt syrup", "rice syrup"
         ]
-        found_syrups = [s for s in glycemic_syrups if re.search(r"\b" + re.escape(s) + r"\b", raw_ing)]
+        found_sugars = []
+        temp_ing = raw_ing
+        for s in glycemic_sugars:
+            if re.search(r"\b" + re.escape(s) + r"\b", temp_ing):
+                found_sugars.append(s)
+                temp_ing = re.sub(r"\b" + re.escape(s) + r"\b", " ", temp_ing)
+        if re.search(r"\bsugar\b", temp_ing):
+            found_sugars.append("sugar")
 
-        if not nut or nut.sugar_g is None:
-            if found_syrups:
+        diabetic_friendly_sweeteners = [
+            "stevia", "monk fruit", "erythritol", "allulose", "xylitol", "sucralose"
+        ]
+        found_friendly = [df for df in diabetic_friendly_sweeteners if re.search(r"\b" + re.escape(df) + r"\b", raw_ing)]
+
+        # If nutritional sugar_g is available, use exact lab threshold
+        if nut and nut.sugar_g is not None:
+            sugar = nut.sugar_g
+            added_sugar = nut.added_sugars
+            high_spike_syrups = ["high fructose corn syrup", "corn syrup", "glucose syrup", "maltodextrin", "dextrose", "invert sugar"]
+            has_spike = any(s in found_sugars for s in high_spike_syrups)
+
+            if sugar > Config.DIABETES_MAX_TOTAL_SUGAR_G or (added_sugar is not None and added_sugar > 5.0) or (has_spike and sugar > 5.0):
+                reasons = [f"⚠️ HIGH GLYCEMIC RISK: Contains {sugar}g sugars per serving (exceeds safe limit of 5-10g for diabetes)."]
+                if found_sugars:
+                    reasons.append(f"Sweeteners detected in ingredients: {', '.join(found_sugars[:3])}.")
                 assessments.append(ClinicalAssessment(
                     condition="Type 2 Diabetes / Glycemic Safety",
                     status=ClinicalStatus.AVOID,
-                    reason=f"Contains high-glycemic sweeteners: {', '.join(found_syrups)}.",
-                    evidence=f"Ingredients declaration includes {', '.join(found_syrups)}.",
-                    matched_factors=found_syrups,
-                    confidence=SourceConfidence.HIGH,
-                    source="Ingredient Analysis"
+                    reason=" ".join(reasons),
+                    evidence=f"Total Sugars: {sugar}g, Ingredients: {found_sugars[:3]}",
+                    matched_factors=[f"Sugar: {sugar}g"] + found_sugars,
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
+            elif sugar > Config.DIABETES_CAUTION_SUGAR_G:
+                assessments.append(ClinicalAssessment(
+                    condition="Type 2 Diabetes / Glycemic Safety",
+                    status=ClinicalStatus.CAUTION,
+                    reason=f"Contains moderate sugar ({sugar}g). Consume in portion context.",
+                    evidence=f"Total Sugars: {sugar}g (Threshold: {Config.DIABETES_CAUTION_SUGAR_G}g).",
+                    matched_factors=[f"Sugar: {sugar}g"] + found_sugars,
+                    confidence=nut.confidence,
+                    source=nut.source
                 ))
             else:
                 assessments.append(ClinicalAssessment(
                     condition="Type 2 Diabetes / Glycemic Safety",
-                    status=ClinicalStatus.UNKNOWN,
-                    reason="Sugar and carbohydrate counts are not verified on this product.",
-                    evidence="Nutrition table is absent or missing sugar/carb metrics.",
+                    status=ClinicalStatus.CLEAR,
+                    reason=f"Verified low glycemic impact ({sugar}g sugars). Safe for diabetic blood sugar management.",
+                    evidence=f"Lab nutrition confirms {sugar}g sugars per serving (<= {Config.DIABETES_CAUTION_SUGAR_G}g).",
                     matched_factors=[],
-                    confidence=SourceConfidence.UNVERIFIED,
-                    source="Nutrition Facts Audit"
+                    confidence=nut.confidence,
+                    source=nut.source
                 ))
             return
 
-        sugar = nut.sugar_g
-        added_sugar = nut.added_sugars
-
-        if sugar > Config.DIABETES_MAX_TOTAL_SUGAR_G or (added_sugar is not None and added_sugar > 5.0) or (len(found_syrups) >= 2):
-            reasons = [f"⚠️ HIGH GLYCEMIC RISK: Contains {sugar}g sugars per serving (exceeds recommended safe limit of 5-10g for diabetes)."]
-            if found_syrups:
-                reasons.append(f"Rapid glycemic spike sweeteners detected: {', '.join(found_syrups)}.")
+        # Ingredient-based evaluation (when nutritional table is absent or not provided)
+        if found_sugars:
+            high_risk_syrups = ["high fructose corn syrup", "corn syrup", "glucose syrup", "maltodextrin", "dextrose", "invert sugar"]
+            has_spike_syrup = any(s in found_sugars for s in high_risk_syrups)
+            
+            if has_spike_syrup or len(found_sugars) >= 2:
+                assessments.append(ClinicalAssessment(
+                    condition="Type 2 Diabetes / Glycemic Safety",
+                    status=ClinicalStatus.AVOID,
+                    reason=f"High Glycemic Risk: Ingredients declare rapid-spike sweeteners ({', '.join(found_sugars[:3])}). Unsuitable for blood sugar regulation.",
+                    evidence=f"Audited ingredients declare: {', '.join(found_sugars[:3])}.",
+                    matched_factors=found_sugars,
+                    confidence=SourceConfidence.HIGH,
+                    source="Ingredient Formulation Audit"
+                ))
+            else:
+                assessments.append(ClinicalAssessment(
+                    condition="Type 2 Diabetes / Glycemic Safety",
+                    status=ClinicalStatus.CAUTION,
+                    reason=f"Contains declared added sugar ({found_sugars[0]}). Diabetic individuals should monitor portion size.",
+                    evidence=f"Audited ingredients declare: {found_sugars[0]}.",
+                    matched_factors=found_sugars,
+                    confidence=SourceConfidence.HIGH,
+                    source="Ingredient Formulation Audit"
+                ))
+        elif found_friendly:
             assessments.append(ClinicalAssessment(
                 condition="Type 2 Diabetes / Glycemic Safety",
-                status=ClinicalStatus.AVOID,
-                reason=" ".join(reasons),
-                evidence=f"Total Sugars: {sugar}g, Added Sugars: {added_sugar if added_sugar is not None else 'Unspecified'}, Syrups: {found_syrups}",
-                matched_factors=[f"Sugar: {sugar}g"] + found_syrups,
-                confidence=nut.confidence,
-                source=nut.source
+                status=ClinicalStatus.CLEAR,
+                reason=f"Diabetic-Friendly Sweetener: Formulated with {', '.join(found_friendly)}. Free from added sucrose or corn syrups.",
+                evidence=f"Sweetener: {', '.join(found_friendly)}.",
+                matched_factors=[],
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
-        elif sugar > Config.DIABETES_CAUTION_SUGAR_G or bool(found_syrups):
+        elif raw_ing:
             assessments.append(ClinicalAssessment(
                 condition="Type 2 Diabetes / Glycemic Safety",
-                status=ClinicalStatus.CAUTION,
-                reason=f"Contains moderate sugar ({sugar}g). Consume in strict portion context.",
-                evidence=f"Total Sugars: {sugar}g per serving (Threshold for low sugar is {Config.DIABETES_CAUTION_SUGAR_G}g).",
-                matched_factors=[f"Sugar: {sugar}g"] + found_syrups,
-                confidence=nut.confidence,
-                source=nut.source
+                status=ClinicalStatus.CLEAR,
+                reason="Verified Low Glycemic: Declared ingredients are free from added sugars, syrups, and refined sweeteners.",
+                evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero added sugars or glycemic syrups identified.",
+                matched_factors=[],
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
         else:
             assessments.append(ClinicalAssessment(
                 condition="Type 2 Diabetes / Glycemic Safety",
-                status=ClinicalStatus.CLEAR,
-                reason=f"Verified low glycemic impact ({sugar}g total sugars, zero high-fructose syrups).",
-                evidence=f"Lab nutrition confirms {sugar}g sugars per serving.",
+                status=ClinicalStatus.UNKNOWN,
+                reason="Sugar and glycemic composition cannot be verified; ingredient list is missing.",
+                evidence="No ingredients declaration provided.",
                 matched_factors=[],
-                confidence=nut.confidence,
-                source=nut.source
+                confidence=SourceConfidence.UNVERIFIED,
+                source="Ingredient Audit"
             ))
 
     @classmethod
@@ -300,51 +353,80 @@ class ClinicalRuleEngine:
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
 
-        high_sodium_additives = ["monosodium glutamate", "msg", "sodium benzoate", "disodium phosphate", "sodium nitrite"]
-        found_additives = [a for a in high_sodium_additives if a in raw_ing]
+        sodium_ingredients = [
+            "monosodium glutamate", "msg", "sodium benzoate", "disodium phosphate",
+            "sodium nitrite", "sodium nitrate", "sodium chloride", "sea salt", "rock salt",
+            "baking soda", "sodium bicarbonate", "sodium citrate", "sodium caseinate",
+            "soy sauce", "brine", "salt"
+        ]
+        found_sodium = [s for s in sodium_ingredients if re.search(r"\b" + re.escape(s) + r"\b", raw_ing)]
 
-        if not nut or nut.sodium_mg is None:
-            assessments.append(ClinicalAssessment(
-                condition="Hypertension / Sodium Safety",
-                status=ClinicalStatus.UNKNOWN,
-                reason="Sodium content could not be verified from packaging or lab records.",
-                evidence="Nutrition facts table does not report sodium/salt values.",
-                matched_factors=[],
-                confidence=SourceConfidence.UNVERIFIED,
-                source="Nutrition Facts Audit"
-            ))
+        # If nutritional sodium_mg is available, evaluate exact threshold
+        if nut and nut.sodium_mg is not None:
+            sodium = nut.sodium_mg
+            if sodium > Config.HYPERTENSION_MAX_SODIUM_MG:
+                assessments.append(ClinicalAssessment(
+                    condition="Hypertension / Sodium Safety",
+                    status=ClinicalStatus.AVOID,
+                    reason=f"High sodium formulation ({sodium}mg per serving; exceeds clinical limit of {Config.HYPERTENSION_MAX_SODIUM_MG}mg).",
+                    evidence=f"Reported Sodium: {sodium}mg/serving.",
+                    matched_factors=[f"Sodium: {sodium}mg"] + found_sodium,
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
+            elif sodium > Config.HYPERTENSION_LOW_SODIUM_MG or found_sodium:
+                assessments.append(ClinicalAssessment(
+                    condition="Hypertension / Sodium Safety",
+                    status=ClinicalStatus.CAUTION,
+                    reason=f"Moderate sodium ({sodium}mg per serving). Safe in moderation.",
+                    evidence=f"Reported Sodium: {sodium}mg/serving (Low sodium benchmark is <= {Config.HYPERTENSION_LOW_SODIUM_MG}mg).",
+                    matched_factors=[f"Sodium: {sodium}mg"] + found_sodium,
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
+            else:
+                assessments.append(ClinicalAssessment(
+                    condition="Hypertension / Sodium Safety",
+                    status=ClinicalStatus.CLEAR,
+                    reason=f"Verified clinical low sodium ({sodium}mg per serving, <= {Config.HYPERTENSION_LOW_SODIUM_MG}mg).",
+                    evidence=f"Reported Sodium: {sodium}mg/serving.",
+                    matched_factors=[],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
             return
 
-        sodium = nut.sodium_mg
-        if sodium > Config.HYPERTENSION_MAX_SODIUM_MG:
+        # Ingredient-based evaluation (when nutritional table is absent or not provided)
+        if found_sodium:
+            is_heavy_sodium = any(s in found_sodium for s in ["monosodium glutamate", "msg", "brine", "soy sauce"]) or len(found_sodium) >= 2
             assessments.append(ClinicalAssessment(
                 condition="Hypertension / Sodium Safety",
-                status=ClinicalStatus.AVOID,
-                reason=f"High sodium formulation ({sodium}mg per serving; exceeds clinical limit of {Config.HYPERTENSION_MAX_SODIUM_MG}mg).",
-                evidence=f"Reported Sodium: {sodium}mg/serving.",
-                matched_factors=[f"Sodium: {sodium}mg"] + found_additives,
-                confidence=nut.confidence,
-                source=nut.source
+                status=ClinicalStatus.AVOID if is_heavy_sodium else ClinicalStatus.CAUTION,
+                reason=f"Contains sodium-bearing ingredients ({', '.join(found_sodium)}). High blood pressure patients should consume cautiously.",
+                evidence=f"Ingredients declare: {', '.join(found_sodium)}.",
+                matched_factors=found_sodium,
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
-        elif sodium > Config.HYPERTENSION_LOW_SODIUM_MG or found_additives:
+        elif raw_ing:
             assessments.append(ClinicalAssessment(
                 condition="Hypertension / Sodium Safety",
-                status=ClinicalStatus.CAUTION,
-                reason=f"Moderate sodium ({sodium}mg per serving). Safe in moderation.",
-                evidence=f"Reported Sodium: {sodium}mg/serving (Low sodium benchmark is <= {Config.HYPERTENSION_LOW_SODIUM_MG}mg).",
-                matched_factors=[f"Sodium: {sodium}mg"] + found_additives,
-                confidence=nut.confidence,
-                source=nut.source
+                status=ClinicalStatus.CLEAR,
+                reason="Verified Low Sodium: Declared ingredients are free from added salt, MSG, or sodium-based preservatives.",
+                evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero sodium compounds identified.",
+                matched_factors=[],
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
         else:
             assessments.append(ClinicalAssessment(
                 condition="Hypertension / Sodium Safety",
-                status=ClinicalStatus.CLEAR,
-                reason=f"Verified clinical low sodium ({sodium}mg per serving, <= {Config.HYPERTENSION_LOW_SODIUM_MG}mg).",
-                evidence=f"Reported Sodium: {sodium}mg/serving.",
+                status=ClinicalStatus.UNKNOWN,
+                reason="Sodium presence cannot be evaluated; ingredient list is missing.",
+                evidence="No ingredients declaration provided.",
                 matched_factors=[],
-                confidence=nut.confidence,
-                source=nut.source
+                confidence=SourceConfidence.UNVERIFIED,
+                source="Ingredient Audit"
             ))
 
     @classmethod
@@ -456,48 +538,92 @@ class ClinicalRuleEngine:
     @classmethod
     def _evaluate_constipation(cls, product: Product, assessments: List[ClinicalAssessment]) -> None:
         nut = product.nutrition
-        if not nut or nut.fiber_g is None:
-            assessments.append(ClinicalAssessment(
-                condition="GI / Fiber Optimization",
-                status=ClinicalStatus.UNKNOWN,
-                reason="Dietary fiber metric is not reported.",
-                evidence="Nutrition panel lacks fiber figures.",
-                matched_factors=[],
-                confidence=SourceConfidence.UNVERIFIED,
-                source="Nutrition Facts Audit"
-            ))
+        ing = product.ingredients
+        raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        fiber_ingredients = [
+            "psyllium", "psyllium husk", "flaxseed", "chia", "chia seeds", "oats", "oat bran",
+            "wheat bran", "inulin", "chicory root", "lentils", "beans", "chickpeas",
+            "whole wheat", "brown rice", "quinoa", "barley"
+        ]
+        found_fiber = [f for f in fiber_ingredients if re.search(r"\b" + re.escape(f) + r"\b", raw_ing)]
+        refined_ingredients = ["refined wheat flour", "maida", "corn starch", "white flour"]
+        found_refined = [r for r in refined_ingredients if re.search(r"\b" + re.escape(r) + r"\b", raw_ing)]
+
+        if nut and nut.fiber_g is not None:
+            fiber = nut.fiber_g
+            if fiber >= Config.HIGH_FIBER_MIN_G:
+                assessments.append(ClinicalAssessment(
+                    condition="GI / Fiber Optimization",
+                    status=ClinicalStatus.CLEAR,
+                    reason=f"Excellent high fiber formulation ({fiber}g per serving; >= {Config.HIGH_FIBER_MIN_G}g). Supports digestive motility.",
+                    evidence=f"Reported Dietary Fiber: {fiber}g.",
+                    matched_factors=[f"Fiber: {fiber}g"],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
+            elif fiber >= 2.0:
+                assessments.append(ClinicalAssessment(
+                    condition="GI / Fiber Optimization",
+                    status=ClinicalStatus.CAUTION,
+                    reason=f"Moderate fiber ({fiber}g). Supplement with whole vegetables or chia/flax.",
+                    evidence=f"Reported Dietary Fiber: {fiber}g.",
+                    matched_factors=[f"Fiber: {fiber}g"],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
+            else:
+                assessments.append(ClinicalAssessment(
+                    condition="GI / Fiber Optimization",
+                    status=ClinicalStatus.CAUTION,
+                    reason=f"Low fiber ({fiber}g per serving). Highly refined composition may exacerbate sluggish transit.",
+                    evidence=f"Reported Dietary Fiber: {fiber}g.",
+                    matched_factors=[f"Fiber: {fiber}g"],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
             return
 
-        fiber = nut.fiber_g
-        if fiber >= Config.HIGH_FIBER_MIN_G:
+        # Ingredient-based evaluation (when numerical nutrition table is absent)
+        if found_fiber:
             assessments.append(ClinicalAssessment(
                 condition="GI / Fiber Optimization",
                 status=ClinicalStatus.CLEAR,
-                reason=f"Excellent high fiber formulation ({fiber}g per serving; >= {Config.HIGH_FIBER_MIN_G}g). Supports digestive motility.",
-                evidence=f"Reported Dietary Fiber: {fiber}g.",
-                matched_factors=[f"Fiber: {fiber}g"],
-                confidence=nut.confidence,
-                source=nut.source
+                reason=f"Digestive Fiber Potential: Contains dietary fiber sources ({', '.join(found_fiber)}). Supports healthy GI motility.",
+                evidence=f"Ingredients declare: {', '.join(found_fiber)}.",
+                matched_factors=found_fiber,
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
-        elif fiber >= 2.0:
+        elif found_refined:
             assessments.append(ClinicalAssessment(
                 condition="GI / Fiber Optimization",
                 status=ClinicalStatus.CAUTION,
-                reason=f"Moderate fiber ({fiber}g). Supplement with whole vegetables or chia/flax.",
-                evidence=f"Reported Dietary Fiber: {fiber}g.",
-                matched_factors=[f"Fiber: {fiber}g"],
-                confidence=nut.confidence,
-                source=nut.source
+                reason=f"Refined Starch Base: Formulated with {', '.join(found_refined)} without whole grain fiber.",
+                evidence=f"Ingredients declare: {', '.join(found_refined)}.",
+                matched_factors=found_refined,
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
+            ))
+        elif raw_ing:
+            assessments.append(ClinicalAssessment(
+                condition="GI / Fiber Optimization",
+                status=ClinicalStatus.CLEAR,
+                reason="Standard whole-food ingredient formulation.",
+                evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients.",
+                matched_factors=[],
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
         else:
             assessments.append(ClinicalAssessment(
                 condition="GI / Fiber Optimization",
-                status=ClinicalStatus.CAUTION,
-                reason=f"Low fiber ({fiber}g per serving). Highly refined composition may exacerbate sluggish transit.",
-                evidence=f"Reported Dietary Fiber: {fiber}g.",
-                matched_factors=[f"Fiber: {fiber}g"],
-                confidence=nut.confidence,
-                source=nut.source
+                status=ClinicalStatus.UNKNOWN,
+                reason="Fiber status cannot be assessed; ingredient list is missing.",
+                evidence="No ingredients declaration provided.",
+                matched_factors=[],
+                confidence=SourceConfidence.UNVERIFIED,
+                source="Packaging Audit"
             ))
 
     @classmethod
@@ -629,73 +755,137 @@ class ClinicalRuleEngine:
     @classmethod
     def _evaluate_high_protein(cls, product: Product, assessments: List[ClinicalAssessment]) -> None:
         nut = product.nutrition
-        if not nut or nut.protein_g is None:
-            assessments.append(ClinicalAssessment(
-                condition="High Protein Criterion",
-                status=ClinicalStatus.UNKNOWN,
-                reason="Protein content is not reported on this product.",
-                evidence="Nutrition panel lacks protein value.",
-                matched_factors=[],
-                confidence=SourceConfidence.UNVERIFIED,
-                source="Nutrition Facts Audit"
-            ))
+        ing = product.ingredients
+        raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        protein_sources = [
+            "whey protein", "pea protein", "soy protein", "egg white", "collagen",
+            "casein", "lentils", "chicken", "salmon", "tofu", "paneer", "almonds",
+            "peanuts", "hemp protein", "rice protein", "soy protein isolate"
+        ]
+        found_protein = [p for p in protein_sources if re.search(r"\b" + re.escape(p) + r"\b", raw_ing)]
+
+        if nut and nut.protein_g is not None:
+            prot = nut.protein_g
+            if prot >= Config.HIGH_PROTEIN_MIN_G:
+                assessments.append(ClinicalAssessment(
+                    condition="High Protein Criterion",
+                    status=ClinicalStatus.CLEAR,
+                    reason=f"Verified High Protein: Delivers {prot}g protein per serving (>= {Config.HIGH_PROTEIN_MIN_G}g).",
+                    evidence=f"Reported Protein: {prot}g/serving.",
+                    matched_factors=[f"Protein: {prot}g"],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
+            else:
+                assessments.append(ClinicalAssessment(
+                    condition="High Protein Criterion",
+                    status=ClinicalStatus.CAUTION,
+                    reason=f"Delivers {prot}g protein per serving (Falls below high-protein threshold of {Config.HIGH_PROTEIN_MIN_G}g).",
+                    evidence=f"Reported Protein: {prot}g/serving.",
+                    matched_factors=[f"Protein: {prot}g"],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
             return
 
-        prot = nut.protein_g
-        if prot >= Config.HIGH_PROTEIN_MIN_G:
+        # Ingredient-based evaluation
+        if found_protein:
             assessments.append(ClinicalAssessment(
                 condition="High Protein Criterion",
                 status=ClinicalStatus.CLEAR,
-                reason=f"Verified High Protein: Delivers {prot}g protein per serving (>= {Config.HIGH_PROTEIN_MIN_G}g).",
-                evidence=f"Reported Protein: {prot}g/serving.",
-                matched_factors=[f"Protein: {prot}g"],
-                confidence=nut.confidence,
-                source=nut.source
+                reason=f"Protein-Rich Formulation: Contains declared protein sources ({', '.join(found_protein)}).",
+                evidence=f"Ingredients declare: {', '.join(found_protein)}.",
+                matched_factors=found_protein,
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
+            ))
+        elif raw_ing:
+            assessments.append(ClinicalAssessment(
+                condition="High Protein Criterion",
+                status=ClinicalStatus.CAUTION,
+                reason="Standard formulation: Does not declare concentrated protein isolates or protein-dense legumes in ingredients.",
+                evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients.",
+                matched_factors=[],
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
         else:
             assessments.append(ClinicalAssessment(
                 condition="High Protein Criterion",
-                status=ClinicalStatus.CAUTION,
-                reason=f"Delivers {prot}g protein per serving (Falls below high-protein threshold of {Config.HIGH_PROTEIN_MIN_G}g).",
-                evidence=f"Reported Protein: {prot}g/serving.",
-                matched_factors=[f"Protein: {prot}g"],
-                confidence=nut.confidence,
-                source=nut.source
+                status=ClinicalStatus.UNKNOWN,
+                reason="Protein presence cannot be evaluated; ingredient declaration missing.",
+                evidence="No ingredients declaration provided.",
+                matched_factors=[],
+                confidence=SourceConfidence.UNVERIFIED,
+                source="Packaging Audit"
             ))
 
     @classmethod
     def _evaluate_low_sugar(cls, product: Product, assessments: List[ClinicalAssessment]) -> None:
         nut = product.nutrition
-        if not nut or nut.sugar_g is None:
-            assessments.append(ClinicalAssessment(
-                condition="Low Sugar Criterion",
-                status=ClinicalStatus.UNKNOWN,
-                reason="Sugar count is not verified.",
-                evidence="Nutrition table missing total sugars.",
-                matched_factors=[],
-                confidence=SourceConfidence.UNVERIFIED,
-                source="Nutrition Facts Audit"
-            ))
+        ing = product.ingredients
+        raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        added_sugars = [
+            "granulated sugar", "cane sugar", "brown sugar", "powdered sugar",
+            "corn syrup", "glucose syrup", "maltodextrin", "dextrose", "invert sugar",
+            "sucrose", "fructose", "molasses", "honey", "agave", "sugar"
+        ]
+        found_sugars = [s for s in added_sugars if re.search(r"\b" + re.escape(s) + r"\b", raw_ing)]
+
+        if nut and nut.sugar_g is not None:
+            sug = nut.sugar_g
+            if sug <= Config.LOW_SUGAR_MAX_G:
+                assessments.append(ClinicalAssessment(
+                    condition="Low Sugar Criterion",
+                    status=ClinicalStatus.CLEAR,
+                    reason=f"Verified Low Sugar: Only {sug}g sugars per serving (<= {Config.LOW_SUGAR_MAX_G}g).",
+                    evidence=f"Reported Sugars: {sug}g/serving.",
+                    matched_factors=[f"Sugar: {sug}g"],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
+            else:
+                assessments.append(ClinicalAssessment(
+                    condition="Low Sugar Criterion",
+                    status=ClinicalStatus.AVOID,
+                    reason=f"Exceeds low-sugar limit: Contains {sug}g sugars per serving (Cap is {Config.LOW_SUGAR_MAX_G}g).",
+                    evidence=f"Reported Sugars: {sug}g/serving.",
+                    matched_factors=[f"Sugar: {sug}g"],
+                    confidence=nut.confidence,
+                    source=nut.source
+                ))
             return
 
-        sug = nut.sugar_g
-        if sug <= Config.LOW_SUGAR_MAX_G:
+        # Ingredient-based evaluation
+        if found_sugars:
+            assessments.append(ClinicalAssessment(
+                condition="Low Sugar Criterion",
+                status=ClinicalStatus.AVOID,
+                reason=f"Contains declared added sugars ({', '.join(found_sugars[:3])}). Fails low-sugar criteria.",
+                evidence=f"Ingredients declare: {', '.join(found_sugars[:3])}.",
+                matched_factors=found_sugars,
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
+            ))
+        elif raw_ing:
             assessments.append(ClinicalAssessment(
                 condition="Low Sugar Criterion",
                 status=ClinicalStatus.CLEAR,
-                reason=f"Verified Low Sugar: Only {sug}g sugars per serving (<= {Config.LOW_SUGAR_MAX_G}g).",
-                evidence=f"Reported Sugars: {sug}g/serving.",
-                matched_factors=[f"Sugar: {sug}g"],
-                confidence=nut.confidence,
-                source=nut.source
+                reason="Verified Low Sugar: Declared ingredients are free from added sucrose, syrups, or refined sugars.",
+                evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero added sugars identified.",
+                matched_factors=[],
+                confidence=SourceConfidence.HIGH,
+                source="Ingredient Formulation Audit"
             ))
         else:
             assessments.append(ClinicalAssessment(
                 condition="Low Sugar Criterion",
-                status=ClinicalStatus.AVOID,
-                reason=f"Exceeds low-sugar limit: Contains {sug}g sugars per serving (Cap is {Config.LOW_SUGAR_MAX_G}g).",
-                evidence=f"Reported Sugars: {sug}g/serving.",
-                matched_factors=[f"Sugar: {sug}g"],
-                confidence=nut.confidence,
-                source=nut.source
+                status=ClinicalStatus.UNKNOWN,
+                reason="Sugar status cannot be assessed; ingredient declaration missing.",
+                evidence="No ingredients declaration provided.",
+                matched_factors=[],
+                confidence=SourceConfidence.UNVERIFIED,
+                source="Packaging Audit"
             ))

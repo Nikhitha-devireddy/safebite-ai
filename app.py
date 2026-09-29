@@ -912,12 +912,24 @@ with nav_check:
         d_col1, d_col2 = st.columns([1, 1])
 
         with d_col1:
-            # 1. NUTRITION FACTS PANEL
-            st.markdown("### 📊 Verified Nutrition Facts")
-            d_nut = detail_prod.nutrition
-            if not d_nut or (d_nut.calories is None and d_nut.sugar_g is None and d_nut.protein_g is None):
-                st.info("⚠️ Nutritional metrics could not be verified from official manufacturer panels.")
+            # 1. INGREDIENTS & CLEAN LABEL AUDIT (PRIMARY CLINICAL EVIDENCE)
+            st.markdown("### 🧪 Ingredients & Additives Audit")
+            d_ing = detail_prod.ingredients
+            if d_ing and d_ing.raw_text:
+                st.markdown(f"**Declared Ingredients List:**\n*{d_ing.raw_text}*")
+                if d_ing.additives:
+                    st.warning(f"**Identified Additives / E-Numbers ({len(d_ing.additives)}):** {', '.join(d_ing.additives)}")
+                else:
+                    st.success("🌱 **Clean Label Verified:** Zero synthetic preservatives, artificial sweeteners, or high-fructose syrups identified.")
             else:
+                st.info("⚠️ Full ingredients declaration is unverified on this listing.")
+
+            # 2. NUTRITION FACTS PANEL (OPTIONAL / IF REPORTED)
+            d_nut = detail_prod.nutrition
+            has_nut_metrics = d_nut and any(v is not None for v in [d_nut.calories, d_nut.sugar_g, d_nut.protein_g, d_nut.fat_g, d_nut.sodium_mg])
+            
+            if has_nut_metrics:
+                st.markdown("### 📊 Verified Nutrition Facts")
                 st.caption(f"Source: **{d_nut.source}** ({d_nut.confidence.value} Confidence)")
                 st.markdown(f"""
                 <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
@@ -963,18 +975,9 @@ with nav_check:
                     </tr>
                 </table>
                 """, unsafe_allow_html=True)
-
-            # 2. INGREDIENTS & CLEAN LABEL AUDIT
-            st.markdown("### 🧪 Ingredients & Additives Audit")
-            d_ing = detail_prod.ingredients
-            if d_ing and d_ing.raw_text:
-                st.markdown(f"**Declared Ingredients List:**\n*{d_ing.raw_text}*")
-                if d_ing.additives:
-                    st.warning(f"**Identified Additives / E-Numbers ({len(d_ing.additives)}):** {', '.join(d_ing.additives)}")
-                else:
-                    st.success("🌱 **Clean Label Verified:** Zero synthetic preservatives, artificial sweeteners, or high-fructose syrups identified.")
             else:
-                st.info("⚠️ Full ingredients declaration is unverified on this listing.")
+                with st.expander("ℹ️ Nutrition Facts Table (Optional / Not Required)"):
+                    st.caption("Clinical safety and allergen checks are evaluated directly from the declared ingredient formulation. A separate numerical nutrition table is not required.")
 
         with d_col2:
             # 3. CLINICAL CONDITION-BY-CONDITION AUDIT (Section 24)
