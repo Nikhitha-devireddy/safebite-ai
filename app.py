@@ -37,6 +37,8 @@ try:
     from location_manager import LocationManager, LocationProfile
     from recommendations import recommend_safe_products, process_automated_order
     from source_manager import SourceManager
+    from nutrition_extractor import NutritionExtractor
+    from product_normalizer import ProductNormalizer
 except Exception as e:
     import traceback
     st.set_page_config(page_title="SafeBite AI - Startup Diagnostic", layout="wide")
