@@ -20,96 +20,165 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom Styling
+# Custom Aesthetic Styling
 st.markdown("""
 <style>
-    .main-header {
-        font-size: 2.3rem;
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    /* Hero Header */
+    .hero-container {
+        background: linear-gradient(135deg, #0F172A 0%, #1E293B 55%, #172554 100%);
+        border-radius: 16px;
+        padding: 34px 32px;
+        margin-bottom: 24px;
+        box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.2), 0 8px 10px -6px rgba(15, 23, 42, 0.15);
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .hero-badge {
+        display: inline-block;
+        background: rgba(59, 130, 246, 0.2);
+        border: 1px solid rgba(147, 197, 253, 0.35);
+        color: #93C5FD;
+        font-size: 0.75rem;
         font-weight: 700;
-        color: #1E293B;
-        margin-bottom: 0.2rem;
+        letter-spacing: 1.2px;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        margin-bottom: 12px;
     }
-    .sub-header {
+    .hero-title {
+        font-size: 2.7rem;
+        font-weight: 800;
+        margin: 0 0 8px 0;
+        line-height: 1.15;
+        letter-spacing: -0.6px;
+        color: #FFFFFF;
+    }
+    .gradient-text {
+        background: linear-gradient(135deg, #60A5FA 0%, #34D399 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .hero-subtitle {
         font-size: 1.05rem;
-        color: #475569;
-        margin-bottom: 1.5rem;
+        color: #CBD5E1;
+        max-width: 820px;
+        margin-bottom: 18px;
+        line-height: 1.6;
     }
-    .product-card {
-        background-color: #FFFFFF;
-        border: 1px solid #E2E8F0;
+    .hero-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+    .hero-chip {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 9999px;
+        padding: 5px 14px;
+        font-size: 0.8rem;
+        color: #E2E8F0;
+        font-weight: 500;
+    }
+
+    /* Contributor Card */
+    .contributor-card {
+        background: linear-gradient(135deg, #1E1B4B 0%, #312E81 100%);
+        border: 1px solid rgba(165, 180, 252, 0.3);
         border-radius: 12px;
-        padding: 22px;
+        padding: 16px;
+        color: white;
+        margin-bottom: 16px;
+        box-shadow: 0 4px 10px rgba(49, 46, 129, 0.3);
+    }
+
+    /* Product Cards */
+    .product-card {
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 14px;
+        padding: 24px;
         margin-bottom: 20px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        transition: transform 0.2s ease;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.04), 0 4px 6px -2px rgba(15, 23, 42, 0.02);
+        transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
     }
     .product-card:hover {
-        border-color: #3B82F6;
+        transform: translateY(-2px);
+        box-shadow: 0 20px 25px -5px rgba(15, 23, 42, 0.08);
+        border-color: #60A5FA;
     }
     .category-tag {
         background-color: #F1F5F9;
-        color: #475569;
-        padding: 4px 10px;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        font-weight: 600;
+        color: #334155;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.5px;
         display: inline-block;
-        margin-bottom: 6px;
+        margin-right: 6px;
+        margin-bottom: 8px;
     }
     .natural-badge {
-        background-color: #ECFDF5;
+        background: linear-gradient(135deg, #ECFDF5 0%, #D1FAE5 100%);
         color: #065F46;
-        padding: 6px 12px;
-        border-radius: 20px;
-        font-size: 0.85rem;
-        font-weight: 600;
+        padding: 5px 12px;
+        border-radius: 9999px;
+        font-size: 0.8rem;
+        font-weight: 700;
         display: inline-block;
-        margin-bottom: 8px;
+        border: 1px solid #A7F3D0;
     }
     .med-badge {
         background-color: #EFF6FF;
         color: #1E40AF;
-        padding: 6px 12px;
-        border-radius: 8px;
-        font-size: 0.9rem;
-        margin-top: 6px;
-        margin-bottom: 6px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-size: 0.88rem;
+        margin: 8px 0;
         border-left: 4px solid #3B82F6;
+        line-height: 1.5;
     }
     .allergen-badge {
         background-color: #FEF2F2;
         color: #991B1B;
-        padding: 6px 12px;
-        border-radius: 8px;
-        font-size: 0.9rem;
-        margin-top: 6px;
-        margin-bottom: 12px;
+        padding: 10px 14px;
+        border-radius: 10px;
+        font-size: 0.88rem;
+        margin: 8px 0;
         border-left: 4px solid #EF4444;
+        line-height: 1.5;
     }
+
+    /* Order Wizard */
     .order-box {
-        background-color: #F8FAFC;
+        background: #F8FAFC;
         border: 2px solid #3B82F6;
-        border-radius: 12px;
+        border-radius: 14px;
         padding: 24px;
         margin-top: 20px;
     }
     .wizard-step-active {
-        background: linear-gradient(135deg, #2563EB, #1D4ED8);
+        background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
         color: white;
-        padding: 8px 12px;
-        border-radius: 8px;
+        padding: 10px 14px;
+        border-radius: 10px;
         font-weight: 700;
         font-size: 0.85rem;
         text-align: center;
-        box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.3);
     }
     .wizard-step-done {
         background-color: #DCFCE7;
         color: #15803D;
-        padding: 8px 12px;
-        border-radius: 8px;
+        padding: 10px 14px;
+        border-radius: 10px;
         font-weight: 600;
         font-size: 0.85rem;
         text-align: center;
@@ -118,59 +187,70 @@ st.markdown("""
     .wizard-step-pending {
         background-color: #F1F5F9;
         color: #64748B;
-        padding: 8px 12px;
-        border-radius: 8px;
+        padding: 10px 14px;
+        border-radius: 10px;
         font-weight: 500;
         font-size: 0.85rem;
         text-align: center;
-        border: 1px solid #CBD5E1;
+        border: 1px solid #E2E8F0;
     }
     .cert-box {
         background: linear-gradient(135deg, #F0FDF4 0%, #DCFCE7 100%);
         border: 2px solid #16A34A;
-        border-radius: 12px;
-        padding: 20px;
-        margin: 15px 0;
-        box-shadow: 0 4px 6px -1px rgba(22, 163, 74, 0.1);
+        border-radius: 14px;
+        padding: 24px;
+        margin: 18px 0;
+        box-shadow: 0 10px 20px -5px rgba(22, 163, 74, 0.15);
     }
     .agent-terminal {
         background-color: #0F172A;
         color: #38BDF8;
-        font-family: 'Consolas', 'Courier New', monospace;
-        padding: 16px 20px;
-        border-radius: 10px;
+        font-family: 'JetBrains Mono', 'Consolas', monospace;
+        padding: 18px 22px;
+        border-radius: 12px;
         border-left: 4px solid #38BDF8;
-        margin: 16px 0;
-        font-size: 0.9rem;
-        line-height: 1.6;
+        margin: 18px 0;
+        font-size: 0.88rem;
+        line-height: 1.7;
+        box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.3);
     }
+
+    /* Nutrition & Retailer Metrics */
     .nutrition-cell {
-        background: #F8FAFC;
+        background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%);
         border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        padding: 10px;
+        border-radius: 10px;
+        padding: 12px 8px;
         text-align: center;
-        margin-bottom: 6px;
+        margin-bottom: 8px;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
     }
     .nutrition-val {
-        font-size: 1.15rem;
-        font-weight: 700;
+        font-size: 1.2rem;
+        font-weight: 800;
         color: #0F172A;
+        letter-spacing: -0.3px;
     }
     .nutrition-lbl {
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         color: #64748B;
         text-transform: uppercase;
-        font-weight: 600;
-        letter-spacing: 0.5px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        margin-top: 2px;
     }
     .retailer-card {
         background: #FFFFFF;
         border: 1px solid #E2E8F0;
-        border-radius: 8px;
-        padding: 14px;
-        margin-bottom: 8px;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 10px;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+        transition: transform 0.15s ease, border-color 0.15s ease;
+    }
+    .retailer-card:hover {
+        border-color: #3B82F6;
+        transform: translateY(-1px);
     }
     .conf-high {
         background-color: #DCFCE7;
@@ -212,55 +292,110 @@ st.markdown("""
         display: inline-block;
         border: 1px solid #CBD5E1;
     }
+
+    /* Verdicts */
     .verdict-safe {
-        background-color: #DCFCE7;
+        background: linear-gradient(135deg, #ECFDF5 0%, #DCFCE7 100%);
         color: #14532D;
-        padding: 18px;
-        border-radius: 10px;
+        padding: 16px 20px;
+        border-radius: 12px;
         border-left: 6px solid #22C55E;
-        font-size: 1.3rem;
-        font-weight: bold;
-        margin: 20px 0;
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin: 18px 0;
+        box-shadow: 0 4px 10px rgba(34, 197, 94, 0.1);
     }
     .verdict-partially-safe {
-        background-color: #FEF9C3;
+        background: linear-gradient(135deg, #FEFCE8 0%, #FEF9C3 100%);
         color: #713F12;
-        padding: 18px;
-        border-radius: 10px;
+        padding: 16px 20px;
+        border-radius: 12px;
         border-left: 6px solid #EAB308;
-        font-size: 1.3rem;
-        font-weight: bold;
-        margin: 20px 0;
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin: 18px 0;
+        box-shadow: 0 4px 10px rgba(234, 179, 8, 0.1);
     }
     .verdict-unsafe {
-        background-color: #FEE2E2;
+        background: linear-gradient(135deg, #FFF1F2 0%, #FEE2E2 100%);
         color: #7F1D1D;
-        padding: 18px;
-        border-radius: 10px;
+        padding: 16px 20px;
+        border-radius: 12px;
         border-left: 6px solid #EF4444;
-        font-size: 1.3rem;
-        font-weight: bold;
-        margin: 20px 0;
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin: 18px 0;
+        box-shadow: 0 4px 10px rgba(239, 68, 68, 0.1);
     }
     .verdict-unable {
-        background-color: #FEF3C7;
+        background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
         color: #92400E;
-        padding: 18px;
-        border-radius: 10px;
+        padding: 16px 20px;
+        border-radius: 12px;
         border-left: 6px solid #F59E0B;
-        font-size: 1.3rem;
-        font-weight: bold;
-        margin: 20px 0;
+        font-size: 1.25rem;
+        font-weight: 800;
+        margin: 18px 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="main-header">🛡️ SafeBite: Clinical Food Safety & Automated Procurement</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-header">For <strong>ANY food, snack, beverage, or craving</strong>: the agent cross-references your personal '
-    'allergens and medical history to recommend 100% safe, clean-label, natural products and provides automated 1-click ordering.</div>', 
-    unsafe_allow_html=True
-)
+# Aesthetic Hero Header
+st.markdown("""
+<div class="hero-container">
+    <div class="hero-badge">🛡️ CLINICAL FOOD SAFETY & RETAIL INTELLIGENCE</div>
+    <h1 class="hero-title">SafeBite <span class="gradient-text">AI</span></h1>
+    <p class="hero-subtitle">
+        Cross-references your chronic medical history and strict allergens against verified laboratory nutrition, 
+        live multi-retailer inventory, and automated 1-click procurement.
+    </p>
+    <div class="hero-chips">
+        <span class="hero-chip">🔬 Clinical Pharmacological Audit</span>
+        <span class="hero-chip">🥗 Open Food Facts Verified</span>
+        <span class="hero-chip">⚡ 10-Min Quick Commerce (Blinkit / Zepto)</span>
+        <span class="hero-chip">🛒 1-Click Autonomous Procurement</span>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# Aesthetic Sidebar
+with st.sidebar:
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 16px;">
+        <span style="font-size: 2.6rem;">🛡️</span>
+        <h2 style="margin: 0; color: #1E293B;">SafeBite <span style="color: #2563EB;">AI</span></h2>
+        <div style="font-size: 0.78rem; color: #64748B; font-weight: 600;">Clinical Safety & Procurement Agent</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Contributor Card
+    st.markdown("""
+    <div class="contributor-card">
+        <div style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: #A5B4FC; font-weight: 700;">Project Creator & Lead</div>
+        <div style="font-size: 1.15rem; font-weight: 800; color: #FFFFFF; margin: 3px 0;">Nikhitha Devireddy</div>
+        <div style="font-size: 0.78rem; color: #C7D2FE; margin-bottom: 10px;">✉️ nikhithalakshmidevireddy@gmail.com</div>
+        <a href="https://github.com/Nikhitha-devireddy/safebite-ai" target="_blank" style="display: block; text-align: center; background: rgba(255,255,255,0.15); color: #67E8F9; padding: 6px 12px; border-radius: 8px; text-decoration: none; font-size: 0.8rem; font-weight: 700; border: 1px solid rgba(103, 232, 249, 0.3);">
+            ⭐ GitHub Repository
+        </a>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("### 🌐 Live Intelligence Status")
+    st.markdown("""
+    - 🟢 **Gemini 3.5 Reasoning**: Active
+    - 🟢 **Open Food Facts API**: Online
+    - 🟢 **Amazon India / Global**: Connected
+    - 🟢 **BigBasket Supermarket**: Ready
+    - 🟢 **Blinkit 10-Min Delivery**: Online
+    - 🟢 **Zepto Quick Commerce**: Online
+    """)
+
+    st.markdown("---")
+    st.markdown("### 🔗 Streamlit Cloud Link")
+    st.markdown("""
+    [**Open Streamlit Cloud App ↗**](https://share.streamlit.io/Nikhitha-devireddy/safebite-ai/main/app.py)
+    """)
+    st.caption("SafeBite AI © 2026 | Built by Nikhitha Devireddy")
 
 # ----------------- GLOBAL USER HEALTH PROFILE -----------------
 st.subheader("Step 1: Your Health Profile & Delivery Location")

@@ -137,3 +137,22 @@ python test_recommendations.py
 ```
 
 All tests execute with 100% pass rates.
+
+---
+
+## 👩‍💻 Author & Lead Contributor
+
+- **Lead Developer & Creator**: **Nikhitha Devireddy**
+- **GitHub**: [@Nikhitha-devireddy](https://github.com/Nikhitha-devireddy)
+- **Email**: [nikhithalakshmidevireddy@gmail.com](mailto:nikhithalakshmidevireddy@gmail.com)
+- **Repository**: [https://github.com/Nikhitha-devireddy/safebite-ai](https://github.com/Nikhitha-devireddy/safebite-ai)
+
+---
+
+## 🔗 Permanent Live Application URL
+
+Access the production deployment permanently on Streamlit Community Cloud:
+
+👉 **[https://share.streamlit.io/Nikhitha-devireddy/safebite-ai/main/app.py](https://share.streamlit.io/Nikhitha-devireddy/safebite-ai/main/app.py)**
+*(Or via your custom configured subdomain at `https://safebite-ai.streamlit.app`)*
+
