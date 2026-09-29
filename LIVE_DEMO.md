@@ -14,9 +14,10 @@ Use these links to test and showcase the SafeBite AI project:
 
 | Access Route | URL Link | Notes |
 | :--- | :--- | :--- |
+| **Live Deployed App (Active)** | [nikhitha-devireddy-safebite-ai-app-i7qq0e.streamlit.app](https://nikhitha-devireddy-safebite-ai-app-i7qq0e.streamlit.app) | **Live instance deployed on Streamlit Community Cloud.** |
 | **Streamlit 1-Click Launch** | [Launch SafeBite AI](https://share.streamlit.io/deploy?repository=Nikhitha-devireddy/safebite-ai&branch=main&main_module=app.py) | **Primary 1-click cloud launch link.** Pre-fills repository, branch (`main`), and entry point (`app.py`). |
 | **Streamlit Community Cloud Canonical Route** | [share.streamlit.io/Nikhitha-devireddy/safebite-ai](https://share.streamlit.io/Nikhitha-devireddy/safebite-ai/main/app.py) | Direct deployment container permanently connected to the `main` branch. |
-| **Live Web App Custom URL** | [safebite-ai.streamlit.app](https://safebite-ai.streamlit.app) | Public custom vanity address for the deployed application. |
+| **Custom Vanity URL** | [safebite-ai.streamlit.app](https://safebite-ai.streamlit.app) | Public custom vanity address for the deployed application. |
 | **GitHub Source Repository** | [github.com/Nikhitha-devireddy/safebite-ai](https://github.com/Nikhitha-devireddy/safebite-ai) | Full production source code, clinical schemas, and 9 test suites. |
 
 ---
