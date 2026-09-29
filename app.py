@@ -20,22 +20,29 @@ if str(ROOT_DIR) not in sys.path:
 import streamlit as st
 from dotenv import load_dotenv
 
-from config import Config
-from schemas import (
-    Product, NutritionFacts, Ingredients, Allergens, RetailerOffer,
-    Evidence, SourceConfidence, ClinicalStatus, ProductIdentityConfidence,
-    ProductSafetyRequest, UserLocation
-)
-from clinical_engine import ClinicalRuleEngine
-from allergen_engine import AllergenEngine
-from product_sources import ProductSources
-from product_search import ProductSearchPipeline
-from product_web_checker import ProductWebChecker
-from ocr_engine import OcrEngine, OcrAnalysisResult
-from presets import HEALTH_PRESETS, get_all_presets, apply_preset_to_session
-from location_manager import LocationManager, LocationProfile
-from recommendations import recommend_safe_products, process_automated_order
-from source_manager import SourceManager
+try:
+    from config import Config
+    from schemas import (
+        Product, NutritionFacts, Ingredients, Allergens, RetailerOffer,
+        Evidence, SourceConfidence, ClinicalStatus, ProductIdentityConfidence,
+        ProductSafetyRequest, UserLocation
+    )
+    from clinical_engine import ClinicalRuleEngine
+    from allergen_engine import AllergenEngine
+    from product_sources import ProductSources
+    from product_search import ProductSearchPipeline
+    from product_web_checker import ProductWebChecker
+    from ocr_engine import OcrEngine, OcrAnalysisResult
+    from presets import HEALTH_PRESETS, get_all_presets, apply_preset_to_session
+    from location_manager import LocationManager, LocationProfile
+    from recommendations import recommend_safe_products, process_automated_order
+    from source_manager import SourceManager
+except Exception as e:
+    import traceback
+    st.set_page_config(page_title="SafeBite AI - Startup Diagnostic", layout="wide")
+    st.error("### ❌ SafeBite AI Startup Diagnostic")
+    st.code(traceback.format_exc(), language="python")
+    st.stop()
 
 # Load environment configuration
 load_dotenv()
