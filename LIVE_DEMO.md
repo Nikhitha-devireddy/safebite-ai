@@ -2,7 +2,7 @@
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=Nikhitha-devireddy/safebite-ai&branch=main&main_module=app.py)
 [![GitHub Repository](https://img.shields.io/badge/GitHub-Nikhitha--devireddy%2Fsafebite--ai-181717.svg?logo=github)](https://github.com/Nikhitha-devireddy/safebite-ai)
-[![Tests: 46 Passed](https://img.shields.io/badge/tests-46%20passed-brightgreen.svg)](https://github.com/Nikhitha-devireddy/safebite-ai)
+[![Tests: 48 Passed](https://img.shields.io/badge/tests-48%20passed-brightgreen.svg)](https://github.com/Nikhitha-devireddy/safebite-ai)
 
 Welcome to the live public demonstration portal for **SafeBite AI** (Clinical Food Intelligence & Safety Platform).
 

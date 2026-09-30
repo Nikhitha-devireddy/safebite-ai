@@ -5,10 +5,14 @@ from google import genai
 # 1. Load the secret key from our .env file
 load_dotenv()
 
-# 2. Initialize the official Google GenAI client
-client = genai.Client()
+client = None
 
 if __name__ == "__main__":
+    # 2. Initialize the official Google GenAI client
+    try:
+        client = genai.Client()
+    except Exception as e:
+        print(f"Gemini client initialization failed: {e}")
     # 3. Send a test message using the recommended Interactions API
     print("Sending test message to Gemini via Interactions API...")
     try:

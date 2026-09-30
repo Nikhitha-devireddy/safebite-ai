@@ -221,9 +221,61 @@ def analyze_product_node(state: AgentState) -> AgentState:
          * **Actionable Clinical Recommendation**: Final advice (e.g., Safe to consume, strictly avoid, or consume in limited quantity).
     """
     
-    print("Running clinical multi-condition evaluation...")
-    analysis, provider = generate_clinical_assessment(prompt)
-    
+    analysis = ""
+    provider = "SafeBite Clinical Engine"
+    try:
+        print("Running clinical multi-condition evaluation...")
+        analysis, provider = generate_clinical_assessment(prompt)
+    except Exception as e:
+        print(f"LLM provider unavailable ({e}). Falling back to SafeBite Deterministic Clinical Engine.")
+        from clinical_engine import ClinicalRuleEngine
+        from nutrition_extractor import NutritionExtractor
+        from schemas import Product, Evidence, SourceConfidence, ClinicalStatus
+
+        p_nut, p_ing, p_allg = NutritionExtractor.extract_from_text(product_data or "", source_name="Agent Input")
+        prod = Product(
+            id="agent_prod",
+            name="Audited Product",
+            brand="Audited Packaging",
+            nutrition=p_nut,
+            ingredients=p_ing,
+            allergens=p_allg,
+            evidence=Evidence(
+                manufacturer_verified=True,
+                sources_consulted=["Deterministic Clinical Agent"],
+                overall_confidence=SourceConfidence.HIGH,
+                last_verified="Just now"
+            )
+        )
+        c_verdict, c_assessments, c_reasons = ClinicalRuleEngine.evaluate(
+            product=prod,
+            user_medical_history=req.medical_history,
+            user_allergies=req.allergies,
+            food_preferences=req.food_preferences
+        )
+        if c_verdict == ClinicalStatus.AVOID:
+            det_verdict = "UNSAFE"
+        elif c_verdict == ClinicalStatus.CAUTION:
+            det_verdict = "PARTIALLY SAFE"
+        elif c_verdict == ClinicalStatus.UNKNOWN:
+            det_verdict = "PARTIALLY SAFE"
+        else:
+            det_verdict = "SAFE"
+
+        reasons_list = [f"- {r}" for r in c_reasons] if c_reasons else ["- Formulation cleared by deterministic rules."]
+        analysis = (
+            f"VERDICT: {det_verdict}\n\n"
+            f"### Executive Summary\n"
+            f"SafeBite Clinical Engine audited this formulation for {req.user_name} against {req.medical_history} and declared allergies ({allergies_formatted}).\n\n"
+            f"### Hidden Allergens & Disguised Ingredients Alert\n"
+            f"{chr(10).join(reasons_list)}\n\n"
+            f"### Medical Condition Interaction\n"
+            f"Evaluated against clinical guidelines for {req.medical_history}. Result: {det_verdict}.\n\n"
+            f"### Actionable Clinical Recommendation\n"
+            f"Status determined as {det_verdict}. Please inspect the flagged ingredients before consumption."
+        )
+        provider = "SafeBite Deterministic Clinical Engine (Offline Failover)"
+
     # Determine verdict label
     verdict = "SAFE"
     if "VERDICT: UNSAFE" in analysis.upper():

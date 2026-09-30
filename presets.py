@@ -225,7 +225,9 @@ def get_all_presets() -> List[HealthPreset]:
 def apply_preset_to_session(preset_id: str, session_state: Any) -> bool:
     """
     Applies preset to Streamlit session_state safely.
-    Updates both backend state keys AND active widget keys so Streamlit updates immediately.
+    Updates domain state keys, legacy keys, and active widget keys.
+    Protects against StreamlitWidgetAlreadyInstantiatedError when widgets
+    have already been instantiated during the current run.
     """
     preset = get_preset(preset_id)
     if not preset:
@@ -233,7 +235,21 @@ def apply_preset_to_session(preset_id: str, session_state: Any) -> bool:
 
     allergies_joined = ", ".join(preset.allergies) if preset.allergies else ""
 
-    # Update persistent state
+    # 1. Update Core Application Domain State (Always safe to mutate at any point in run)
+    session_state["user_name"] = preset.user_name
+    session_state["medical_history"] = preset.medical_history
+    session_state["allergies_list"] = list(preset.allergies)
+    session_state["food_preferences"] = preset.food_preferences
+    session_state["location_dict"] = {
+        "country": preset.location.get("country", "India"),
+        "city": preset.location.get("city", "Bengaluru"),
+        "state": preset.location.get("state", "Karnataka"),
+        "pincode": preset.location.get("pincode", "560001"),
+        "address": preset.location.get("address", "")
+    }
+    session_state["active_preset_id"] = preset.id
+
+    # 2. Update Legacy / Compatibility Keys (Required for test suite & backwards compatibility)
     session_state["profile_name"] = preset.user_name
     session_state["profile_med"] = preset.medical_history
     session_state["profile_all"] = allergies_joined
@@ -243,22 +259,62 @@ def apply_preset_to_session(preset_id: str, session_state: Any) -> bool:
     session_state["profile_state"] = preset.location.get("state", "Karnataka")
     session_state["profile_pincode"] = preset.location.get("pincode", "560001")
     session_state["profile_address"] = preset.location.get("address", "")
-    session_state["active_preset_id"] = preset.id
 
-    # Update active Streamlit widget input keys so UI reflects change immediately
-    session_state["input_user_name"] = preset.user_name
-    session_state["input_medical_history"] = preset.medical_history
-    session_state["input_allergies"] = allergies_joined
-    session_state["input_food_preferences"] = preset.food_preferences
-    session_state["input_country"] = preset.location.get("country", "India")
-    session_state["input_city"] = preset.location.get("city", "Bengaluru")
-    session_state["input_state"] = preset.location.get("state", "Karnataka")
-    session_state["input_pincode"] = preset.location.get("pincode", "560001")
-    session_state["input_address"] = preset.location.get("address", "")
+    # Determine matched saved location profile if any
+    matched_loc_id = "custom"
+    matched_label = "⚙️ Custom Address"
+    try:
+        from location_manager import LocationManager
+        for k, prof in LocationManager.SAVED_PROFILES.items():
+            if prof.city.lower() == preset.location.get("city", "").lower():
+                matched_loc_id = k
+                matched_label = prof.label
+                break
+    except Exception:
+        pass
+    session_state["active_location_id"] = matched_loc_id
 
-    # Set sample query if available
+    # 3. Safe Setter for Active Streamlit Widget Keys
+    def _safe_set_widget(key: str, value: Any):
+        try:
+            session_state[key] = value
+        except Exception:
+            # Catch StreamlitWidgetAlreadyInstantiatedError or other session state restrictions
+            pass
+
+    _safe_set_widget("input_user_name", preset.user_name)
+    _safe_set_widget("input_medical_history", preset.medical_history)
+    _safe_set_widget("input_allergies", allergies_joined)
+    _safe_set_widget("input_food_preferences", preset.food_preferences)
+    _safe_set_widget("input_country", preset.location.get("country", "India"))
+    _safe_set_widget("input_city", preset.location.get("city", "Bengaluru"))
+    _safe_set_widget("input_state", preset.location.get("state", "Karnataka"))
+    _safe_set_widget("input_pincode", preset.location.get("pincode", "560001"))
+    _safe_set_widget("input_address", preset.location.get("address", ""))
+    _safe_set_widget("sb_location_selector", matched_label)
+
+    # Synchronize Allergen Checkboxes & Custom Allergies widget
+    common_allergens = ["Peanuts", "Tree Nuts", "Dairy", "Gluten", "Soy", "Eggs", "Shellfish", "Fish", "Sesame", "Mustard"]
+    custom_allergies = []
+    preset_allergies_lower = [a.lower() for a in preset.allergies]
+    for alg in common_allergens:
+        is_chk = any(alg.lower() in a for a in preset_allergies_lower)
+        _safe_set_widget(f"chk_alg_{alg}", is_chk)
+
+    for a in preset.allergies:
+        if not any(alg.lower() in a.lower() for alg in common_allergens):
+            custom_allergies.append(a)
+    _safe_set_widget("input_custom_allergies", ", ".join(custom_allergies))
+
+    # Set sample query across all search inputs
     if preset.sample_queries:
-        session_state["intel_query_input"] = preset.sample_queries[0]
-        session_state["main_intel_query_input"] = preset.sample_queries[0]
+        sample_q = preset.sample_queries[0]
+        session_state["intel_query_input"] = sample_q
+        session_state["main_intel_query_input"] = sample_q
+        _safe_set_widget("tab_search_query_input", sample_q)
+        _safe_set_widget("home_search_input", sample_q)
+
+    # Set flag for top-of-script rerun application in case widgets were already instantiated
+    session_state["_pending_preset_id"] = preset.id
 
     return True

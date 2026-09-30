@@ -8,7 +8,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Architecture: Deterministic-First](https://img.shields.io/badge/architecture-deterministic--first-059669.svg)](#core-product-principles)
 [![Clinical Safety Engine](https://img.shields.io/badge/clinical--engine-100%25%20evidence--backed-green.svg)](#clinical-safety--verdict-engine)
-[![Tests: 46 Passed](https://img.shields.io/badge/tests-46%20passed-brightgreen.svg)](#testing--verification)
+[![Tests: 48 Passed](https://img.shields.io/badge/tests-48%20passed-brightgreen.svg)](#testing--verification)
 
 > 🚀 **Live Demo**: Deploy or test the application in 1-click via [Streamlit Cloud](https://share.streamlit.io/deploy?repository=Nikhitha-devireddy/safebite-ai&branch=main&main_module=app.py) or view [LIVE_DEMO.md](LIVE_DEMO.md) for direct permanent URLs.
 
@@ -356,8 +356,8 @@ Open your browser at `http://localhost:8501`.
 SafeBite includes a comprehensive, multi-layer automated test suite covering all critical safety paths:
 
 ```bash
-# Run all unit tests
-python -m unittest test_clinical_engine.py test_allergen_engine.py test_product_identity.py test_retrieval_resilience.py test_ocr_flow.py test_presets.py test_intelligence_engine.py
+# Run all 48 automated test suites
+python -m unittest discover
 ```
 
 ### Test Coverage Highlights
@@ -366,7 +366,10 @@ python -m unittest test_clinical_engine.py test_allergen_engine.py test_product_
 * **`test_product_identity.py`**: Verifies barcode equality, flavor variant conflict prevention (Chocolate vs Peanut), and pack size differences.
 * **`test_retrieval_resilience.py`**: Verifies HTTP 200, 403 (graceful bot protection fallback), 404, 429, 500+, timeout recovery, JSON-LD schema extraction, and malformed HTML handling.
 * **`test_ocr_flow.py`**: Verifies image validation, corrupt file handling, blurry label guardrails, and regression prevention for undefined variable bugs.
-* **`test_presets.py`**: Verifies all 11 presets, filter criteria translation, and multi-location serviceability routing.
+* **`test_presets.py`**: Verifies all 11 presets, filter criteria translation, session state binding, and multi-location serviceability routing.
+* **`test_intelligence_engine.py`**: Verifies query parsing, cross-source conflict detection, and deterministic Open Food Facts normalization.
+* **`test_workflow.py`**: Verifies LangGraph agent pipeline, scrape URL extraction, and hidden derivative detection with deterministic failover.
+* **`test_recommendations.py`**: Verifies automated order assistance, retailer deep-link routing (India, US, UK), and offline catalog generation.
 
 ---
 

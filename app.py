@@ -299,6 +299,11 @@ if "wizard_selected_prod" not in st.session_state:
 if "wizard_step" not in st.session_state:
     st.session_state["wizard_step"] = 1
 
+# Process any pending preset application BEFORE any UI widgets are instantiated
+if "_pending_preset_id" in st.session_state and st.session_state["_pending_preset_id"]:
+    pending_p_id = st.session_state.pop("_pending_preset_id")
+    apply_preset_to_session(pending_p_id, st.session_state)
+
 # =========================================================================
 # SIDEBAR: HEALTH PROFILE & GEOGRAPHIC LOCATION
 # =========================================================================
@@ -311,23 +316,27 @@ with st.sidebar:
     saved_keys = list(LocationManager.SAVED_PROFILES.keys())
     saved_labels = [LocationManager.SAVED_PROFILES[k].label for k in saved_keys] + ["⚙️ Custom Address"]
     curr_loc_idx = 0
-    if st.session_state["active_location_id"] in saved_keys:
-        curr_loc_idx = saved_keys.index(st.session_state["active_location_id"])
+    active_loc_id = st.session_state.get("active_location_id", "home")
+    if active_loc_id in saved_keys:
+        curr_loc_idx = saved_keys.index(active_loc_id)
+
+    if "sb_location_selector" not in st.session_state or st.session_state["sb_location_selector"] not in saved_labels:
+        st.session_state["sb_location_selector"] = saved_labels[curr_loc_idx]
 
     sel_loc_label = st.selectbox(
         "Active Delivery Area:",
         saved_labels,
-        index=curr_loc_idx,
         key="sb_location_selector"
     )
 
     if sel_loc_label == "⚙️ Custom Address":
         st.session_state["active_location_id"] = "custom"
+        loc_data = st.session_state.get("location_dict", {})
         c_country = st.selectbox("Country", ["India", "United States", "United Kingdom", "Canada", "Australia", "Global"], index=0, key="custom_c")
-        c_state = st.text_input("State / Province", value=st.session_state["location_dict"].get("state", "Karnataka"), key="custom_s")
-        c_city = st.text_input("City / Town", value=st.session_state["location_dict"].get("city", "Bengaluru"), key="custom_city")
-        c_pin = st.text_input("Pincode / Postal Code", value=st.session_state["location_dict"].get("pincode", "560001"), key="custom_pin")
-        c_addr = st.text_input("Street Address", value=st.session_state["location_dict"].get("address", "12 Indiranagar 100ft Rd"), key="custom_addr")
+        c_state = st.text_input("State / Province", value=loc_data.get("state", "Karnataka"), key="custom_s")
+        c_city = st.text_input("City / Town", value=loc_data.get("city", "Bengaluru"), key="custom_city")
+        c_pin = st.text_input("Pincode / Postal Code", value=loc_data.get("pincode", "560001"), key="custom_pin")
+        c_addr = st.text_input("Street Address", value=loc_data.get("address", "12 Indiranagar 100ft Rd"), key="custom_addr")
         st.session_state["location_dict"] = {
             "country": c_country, "state": c_state, "city": c_city, "pincode": c_pin, "address": c_addr
         }
@@ -342,12 +351,15 @@ with st.sidebar:
 
     # Profile Inputs
     st.markdown("#### 👤 Health Parameters")
-    prof_name = st.text_input("User Name", value=st.session_state["user_name"], key="input_user_name")
+    if "input_user_name" not in st.session_state:
+        st.session_state["input_user_name"] = st.session_state.get("user_name", "Alex")
+    prof_name = st.text_input("User Name", key="input_user_name")
     st.session_state["user_name"] = prof_name
 
+    if "input_medical_history" not in st.session_state:
+        st.session_state["input_medical_history"] = st.session_state.get("medical_history", "Type 2 Diabetes (Strict No Added Sugar / Low Glycemic)")
     prof_med = st.text_area(
         "Medical Conditions / Chronic History",
-        value=st.session_state["medical_history"],
         help="e.g. Type 2 Diabetes (Strict No Added Sugar), Hypertension (Low Sodium <= 140mg), Celiac Disease...",
         key="input_medical_history",
         height=80
@@ -358,19 +370,22 @@ with st.sidebar:
     st.markdown("##### 🚫 Food Allergies & Intolerances")
     common_allergens = ["Peanuts", "Tree Nuts", "Dairy", "Gluten", "Soy", "Eggs", "Shellfish", "Fish", "Sesame", "Mustard"]
     
-    current_allergies = [a.strip() for a in st.session_state["allergies_list"] if a.strip()]
+    current_allergies = [a.strip() for a in st.session_state.get("allergies_list", []) if a.strip()]
     sel_allergens = []
     
     col_a1, col_a2 = st.columns(2)
     for i, alg in enumerate(common_allergens):
         col = col_a1 if i % 2 == 0 else col_a2
-        checked = any(alg.lower() in ca.lower() for ca in current_allergies)
-        if col.checkbox(alg, value=checked, key=f"chk_alg_{alg}"):
+        chk_key = f"chk_alg_{alg}"
+        if chk_key not in st.session_state:
+            st.session_state[chk_key] = any(alg.lower() in ca.lower() for ca in current_allergies)
+        if col.checkbox(alg, key=chk_key):
             sel_allergens.append(alg)
 
+    if "input_custom_allergies" not in st.session_state:
+        st.session_state["input_custom_allergies"] = ", ".join([ca for ca in current_allergies if not any(alg.lower() in ca.lower() for alg in common_allergens)])
     custom_alg_str = st.text_input(
         "Additional Allergies (comma-separated):",
-        value=", ".join([ca for ca in current_allergies if ca not in common_allergens]),
         key="input_custom_allergies"
     )
     if custom_alg_str.strip():
@@ -380,9 +395,10 @@ with st.sidebar:
 
     st.session_state["allergies_list"] = sel_allergens
 
+    if "input_food_preferences" not in st.session_state:
+        st.session_state["input_food_preferences"] = st.session_state.get("food_preferences", "Clean Label, Plant-Based")
     prof_pref = st.text_input(
         "Dietary Preferences",
-        value=st.session_state["food_preferences"],
         placeholder="e.g. Vegan, 100% Lacto-Vegetarian, Clean Label, Halal, Kosher...",
         key="input_food_preferences"
     )
@@ -452,10 +468,10 @@ with nav_home:
         <h1>Know what’s in your food.</h1>
         <p>Search, verify and understand products using real nutritional evidence, laboratory panels, and your personal medical safety profile. The system never fabricates facts.</p>
         <div class="hero-meta-bar">
-            <span class="hero-meta-item">👤 Patient: <strong>{st.session_state['user_name']}</strong></span>
-            <span class="hero-meta-item">🩺 Active Condition: <strong>{st.session_state['medical_history'] or 'General Health'}</strong></span>
-            <span class="hero-meta-item">🚫 Strict Allergens: <strong>{', '.join(st.session_state['allergies_list']) if st.session_state['allergies_list'] else 'None'}</strong></span>
-            <span class="hero-meta-item">📍 Delivery: <strong>{st.session_state['location_dict'].get('city', 'Bengaluru')}, {st.session_state['location_dict'].get('country', 'India')}</strong></span>
+            <span class="hero-meta-item">👤 Patient: <strong>{st.session_state.get('user_name', 'Alex')}</strong></span>
+            <span class="hero-meta-item">🩺 Active Condition: <strong>{st.session_state.get('medical_history', 'General Health') or 'General Health'}</strong></span>
+            <span class="hero-meta-item">🚫 Strict Allergens: <strong>{', '.join(st.session_state.get('allergies_list', [])) if st.session_state.get('allergies_list') else 'None'}</strong></span>
+            <span class="hero-meta-item">📍 Delivery: <strong>{st.session_state.get('location_dict', {}).get('city', 'Bengaluru')}, {st.session_state.get('location_dict', {}).get('country', 'India')}</strong></span>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -484,16 +500,28 @@ with nav_home:
         cols1 = st.columns(6)
         for i, preset in enumerate(row1):
             with cols1[i]:
-                if st.button(f"{preset.icon} {preset.name}", key=f"btn_pre_{preset.id}", use_container_width=True, help=preset.tagline):
-                    apply_preset_to_session(preset.id, st.session_state)
+                if st.button(
+                    f"{preset.icon} {preset.name}",
+                    key=f"btn_pre_{preset.id}",
+                    use_container_width=True,
+                    help=preset.tagline,
+                    on_click=apply_preset_to_session,
+                    args=(preset.id, st.session_state)
+                ):
                     st.toast(f"Applied preset: {preset.name}", icon=preset.icon)
                     st.rerun()
 
         cols2 = st.columns(len(row2))
         for j, preset in enumerate(row2):
             with cols2[j]:
-                if st.button(f"{preset.icon} {preset.name}", key=f"btn_pre_{preset.id}", use_container_width=True, help=preset.tagline):
-                    apply_preset_to_session(preset.id, st.session_state)
+                if st.button(
+                    f"{preset.icon} {preset.name}",
+                    key=f"btn_pre_{preset.id}",
+                    use_container_width=True,
+                    help=preset.tagline,
+                    on_click=apply_preset_to_session,
+                    args=(preset.id, st.session_state)
+                ):
                     st.toast(f"Applied preset: {preset.name}", icon=preset.icon)
                     st.rerun()
 
@@ -502,9 +530,9 @@ with nav_home:
         with st.spinner("🔍 Consulting Open Food Facts, Amazon, BigBasket, Blinkit, and Zepto in parallel..."):
             prods, crit, reasoning = search_pipeline.search_and_filter(
                 query=home_query.strip(),
-                user_medical_history=st.session_state["medical_history"],
-                user_allergies=st.session_state["allergies_list"],
-                food_preferences=st.session_state["food_preferences"]
+                user_medical_history=st.session_state.get("medical_history", ""),
+                user_allergies=st.session_state.get("allergies_list", []),
+                food_preferences=st.session_state.get("food_preferences", "")
             )
             st.session_state["search_results"] = prods
             st.session_state["last_reasoning"] = reasoning
@@ -603,11 +631,11 @@ with nav_home:
                     st.markdown("</div>", unsafe_allow_html=True)
 
     # Recent Audits Preview on Home
-    if st.session_state["recent_history"]:
+    if st.session_state.get("recent_history"):
         st.markdown("---")
         st.markdown("### 🕒 Recent Safety Audits")
-        h_cols = st.columns(min(len(st.session_state["recent_history"]), 4))
-        for h_idx, item in enumerate(st.session_state["recent_history"][:4]):
+        h_cols = st.columns(min(len(st.session_state.get("recent_history", [])), 4))
+        for h_idx, item in enumerate(st.session_state.get("recent_history", [])[:4]):
             with h_cols[h_idx]:
                 st.markdown(f"""
                 <div style="background: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; font-size: 0.85rem;">
@@ -641,23 +669,24 @@ with nav_search:
         exec_search = st.button("RUN SEARCH", type="primary", use_container_width=True, key="exec_tab_search")
 
     if exec_search and search_term_val.strip():
-        with st.spinner(f"⚡ Querying real catalogs in parallel for {st.session_state['location_dict'].get('city', 'Bengaluru')}..."):
+        with st.spinner(f"⚡ Querying real catalogs in parallel for {st.session_state.get('location_dict', {}).get('city', 'Bengaluru')}..."):
             prods, crit, reasoning = search_pipeline.search_and_filter(
                 query=search_term_val.strip(),
-                user_medical_history=st.session_state["medical_history"],
-                user_allergies=st.session_state["allergies_list"],
-                food_preferences=st.session_state["food_preferences"]
+                user_medical_history=st.session_state.get("medical_history", ""),
+                user_allergies=st.session_state.get("allergies_list", []),
+                food_preferences=st.session_state.get("food_preferences", "")
             )
             st.session_state["search_results"] = prods
             st.session_state["last_reasoning"] = reasoning
 
     # Render results
-    if st.session_state["search_results"]:
+    search_prods = st.session_state.get("search_results", [])
+    if search_prods:
         if "last_reasoning" in st.session_state:
             st.markdown(st.session_state["last_reasoning"])
 
-        st.markdown(f"#### Discovered Products ({len(st.session_state['search_results'])} items)")
-        for idx, prod in enumerate(st.session_state["search_results"]):
+        st.markdown(f"#### Discovered Products ({len(search_prods)} items)")
+        for idx, prod in enumerate(search_prods):
             with st.container():
                 nut = prod.nutrition
                 st.markdown(f"""
@@ -751,10 +780,10 @@ with nav_check:
                 with st.spinner("Scraping webpage, inspecting JSON-LD schema, and analyzing clinical safety..."):
                     checked_product = product_sources.fetch_by_url(
                         url=url_input.strip(),
-                        user_medical_history=st.session_state["medical_history"],
-                        user_allergies=st.session_state["allergies_list"],
-                        location=st.session_state["location_dict"].get("city", "Bengaluru"),
-                        food_preferences=st.session_state["food_preferences"]
+                        user_medical_history=st.session_state.get("medical_history", ""),
+                        user_allergies=st.session_state.get("allergies_list", []),
+                        location=st.session_state.get("location_dict", {}).get("city", "Bengaluru"),
+                        food_preferences=st.session_state.get("food_preferences", "")
                     )
                     if checked_product:
                         record_to_history(checked_product, "Product URL")
@@ -796,9 +825,9 @@ with nav_check:
                     )
                     verdict, assessments, reasons = ClinicalRuleEngine.evaluate(
                         product=checked_product,
-                        user_medical_history=st.session_state["medical_history"],
-                        user_allergies=st.session_state["allergies_list"],
-                        food_preferences=st.session_state["food_preferences"]
+                        user_medical_history=st.session_state.get("medical_history", ""),
+                        user_allergies=st.session_state.get("allergies_list", []),
+                        food_preferences=st.session_state.get("food_preferences", "")
                     )
                     checked_product.clinical_assessments = assessments
                     checked_product.health_safety_reasons = reasons
@@ -834,10 +863,10 @@ with nav_check:
                         ocr_res: OcrAnalysisResult = OcrEngine.analyze_label_image(
                             image_bytes=img_bytes,
                             mime_type=uploaded_file.type,
-                            user_name=st.session_state["user_name"],
-                            medical_history=st.session_state["medical_history"],
-                            allergies=st.session_state["allergies_list"],
-                            food_preferences=st.session_state["food_preferences"]
+                            user_name=st.session_state.get("user_name", "Alex"),
+                            medical_history=st.session_state.get("medical_history", ""),
+                            allergies=st.session_state.get("allergies_list", []),
+                            food_preferences=st.session_state.get("food_preferences", "")
                         )
 
                         if not ocr_res.success or ocr_res.verdict == "UNABLE TO ASSESS":
@@ -874,10 +903,10 @@ with nav_check:
                 with st.spinner(f"Querying Open Food Facts database for barcode {barcode_in.strip()}..."):
                     checked_product = product_sources.fetch_by_barcode(
                         barcode=barcode_in.strip(),
-                        user_medical_history=st.session_state["medical_history"],
-                        user_allergies=st.session_state["allergies_list"],
-                        location=st.session_state["location_dict"].get("city", "Bengaluru"),
-                        food_preferences=st.session_state["food_preferences"]
+                        user_medical_history=st.session_state.get("medical_history", ""),
+                        user_allergies=st.session_state.get("allergies_list", []),
+                        location=st.session_state.get("location_dict", {}).get("city", "Bengaluru"),
+                        food_preferences=st.session_state.get("food_preferences", "")
                     )
                     if checked_product:
                         record_to_history(checked_product, "Barcode Lookup")
@@ -1057,10 +1086,11 @@ with nav_compare:
     pool = st.session_state.get("compare_pool", [])
     if len(pool) < 2:
         st.info("ℹ️ Please add at least 2 products to the compare pool using the **'Add to Compare'** buttons in Search or Home.")
-        if st.session_state.get("search_results"):
+        search_prods = st.session_state.get("search_results", [])
+        if search_prods:
             st.markdown("Quickly add from recent search results:")
-            quick_cols = st.columns(min(len(st.session_state["search_results"]), 4))
-            for q_idx, q_prod in enumerate(st.session_state["search_results"][:4]):
+            quick_cols = st.columns(min(len(search_prods), 4))
+            for q_idx, q_prod in enumerate(search_prods[:4]):
                 with quick_cols[q_idx]:
                     if st.button(f"+ Add '{q_prod.name[:20]}'", key=f"q_add_cmp_{q_prod.id}_{q_idx}"):
                         if not any(p.id == q_prod.id for p in pool):
@@ -1142,14 +1172,14 @@ with nav_health:
     col_hp1, col_hp2 = st.columns(2)
     with col_hp1:
         st.markdown("#### Clinical Information")
-        st.write(f"- **Patient / User:** {st.session_state['user_name']}")
-        st.write(f"- **Medical History:** {st.session_state['medical_history'] or 'None'}")
-        st.write(f"- **Food Allergies:** {', '.join(st.session_state['allergies_list']) if st.session_state['allergies_list'] else 'None'}")
-        st.write(f"- **Dietary Preferences:** {st.session_state['food_preferences'] or 'Standard'}")
+        st.write(f"- **Patient / User:** {st.session_state.get('user_name', 'Alex')}")
+        st.write(f"- **Medical History:** {st.session_state.get('medical_history', 'None') or 'None'}")
+        st.write(f"- **Food Allergies:** {', '.join(st.session_state.get('allergies_list', [])) if st.session_state.get('allergies_list') else 'None'}")
+        st.write(f"- **Dietary Preferences:** {st.session_state.get('food_preferences', 'Standard') or 'Standard'}")
 
     with col_hp2:
         st.markdown("#### Regional Delivery Destination")
-        loc_d = st.session_state["location_dict"]
+        loc_d = st.session_state.get("location_dict", {})
         st.write(f"- **Country:** {loc_d.get('country')}")
         st.write(f"- **State:** {loc_d.get('state')}")
         st.write(f"- **City:** {loc_d.get('city')}")
@@ -1242,7 +1272,7 @@ if sel_order_prod:
         with q_col:
             order_qty = st.number_input("Quantity:", min_value=1, max_value=10, value=1, key="order_qty_input")
         with a_col:
-            order_addr = st.text_input("Destination:", value=st.session_state["location_dict"].get("address", "12 Indiranagar 100ft Rd"), key="order_addr_input")
+            order_addr = st.text_input("Destination:", value=st.session_state.get("location_dict", {}).get("address", "12 Indiranagar 100ft Rd"), key="order_addr_input")
 
         c1, c2 = st.columns(2)
         with c1:
@@ -1257,7 +1287,7 @@ if sel_order_prod:
     # Step 2: Clinical Clearance
     elif w_step == 2:
         st.markdown("#### Step 2: SafeBite Clinical Pre-Flight Safety Certificate")
-        rx_id = f"SAFEBITE-RX-{abs(hash(p_name + st.session_state['user_name'])) % 90000 + 10000}"
+        rx_id = f"SAFEBITE-RX-{abs(hash(p_name + st.session_state.get('user_name', 'User'))) % 90000 + 10000}"
         st.session_state["active_rx_id"] = rx_id
 
         st.markdown(f"""
@@ -1268,9 +1298,9 @@ if sel_order_prod:
             </div>
             <hr style="border:0; border-top:1px solid #BBF7D0; margin:10px 0;">
             <div style="font-size:0.9rem; line-height:1.7;">
-                <div>👤 <strong>Patient:</strong> {st.session_state['user_name']}</div>
-                <div>🩺 <strong>Medical Evaluation:</strong> Cleared for <em>{st.session_state['medical_history']}</em></div>
-                <div>🚫 <strong>Allergen Inspection:</strong> Cleared for <em>{', '.join(st.session_state['allergies_list']) if st.session_state['allergies_list'] else 'None'}</em></div>
+                <div>👤 <strong>Patient:</strong> {st.session_state.get('user_name', 'Alex')}</div>
+                <div>🩺 <strong>Medical Evaluation:</strong> Cleared for <em>{st.session_state.get('medical_history', 'General Health')}</em></div>
+                <div>🚫 <strong>Allergen Inspection:</strong> Cleared for <em>{', '.join(st.session_state.get('allergies_list', [])) if st.session_state.get('allergies_list') else 'None'}</em></div>
                 <div>📦 <strong>Prescription Target:</strong> {p_name} ({p_brand})</div>
                 <div style="margin-top:6px; font-weight:700;">🔒 Clinical ID: <code>{rx_id}</code></div>
             </div>

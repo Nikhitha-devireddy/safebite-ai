@@ -101,60 +101,70 @@ def recommend_safe_products(
     - "direct_search_query": Precise search term for purchase link generation
     """
 
-    raw_response, provider = generate_clinical_assessment(prompt)
-
-    import unicodedata
-    raw_response = unicodedata.normalize('NFKD', raw_response)
-    raw_response = (
-        raw_response
-        .replace('\u2011', '-')
-        .replace('\u2013', '-')
-        .replace('\u2014', '-')
-        .replace('\u2018', "'")
-        .replace('\u2019', "'")
-        .replace('\u201c', '"')
-        .replace('\u201d', '"')
-        .replace('\u202f', ' ')
-        .replace('\u00a0', ' ')
-    )
-
-    cleaned = raw_response.strip()
-    match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', cleaned, re.DOTALL)
-    if match:
-        cleaned = match.group(1)
-    else:
-        start_idx = cleaned.find('[')
-        end_idx = cleaned.rfind(']')
-        if start_idx != -1 and end_idx != -1:
-            cleaned = cleaned[start_idx:end_idx+1]
-
-    # Remove invalid trailing commas before closing brackets
-    cleaned_repaired = re.sub(r',\s*([\]\}])', r'\1', cleaned)
-
+    products = []
+    provider = "SafeBite Curated Catalog (Offline Mode)"
     try:
-        products = json.loads(cleaned_repaired)
-    except Exception:
+        raw_response, provider = generate_clinical_assessment(prompt)
+    except Exception as e:
+        print(f"LLM assessment offline or key missing ({e}). Using deterministic safe product generator.")
+        raw_response = ""
+
+    if raw_response:
+        import unicodedata
+        raw_response = unicodedata.normalize('NFKD', raw_response)
+        raw_response = (
+            raw_response
+            .replace('\u2011', '-')
+            .replace('\u2013', '-')
+            .replace('\u2014', '-')
+            .replace('\u2018', "'")
+            .replace('\u2019', "'")
+            .replace('\u201c', '"')
+            .replace('\u201d', '"')
+            .replace('\u202f', ' ')
+            .replace('\u00a0', ' ')
+        )
+
+        cleaned = raw_response.strip()
+        match = re.search(r'```(?:json)?\s*(\[.*?\])\s*```', cleaned, re.DOTALL)
+        if match:
+            cleaned = match.group(1)
+        else:
+            start_idx = cleaned.find('[')
+            end_idx = cleaned.rfind(']')
+            if start_idx != -1 and end_idx != -1:
+                cleaned = cleaned[start_idx:end_idx+1]
+
+        # Remove invalid trailing commas before closing brackets
+        cleaned_repaired = re.sub(r',\s*([\]\}])', r'\1', cleaned)
+
         try:
-            products = json.loads(cleaned)
-        except Exception as e:
-            print(f"JSON parsing error: {e}. Raw content: {cleaned[:300]}")
-            curr_sym = "₹" if "india" in loc_country.lower() else "$"
-            products = [
-                {
-                    "id": "prod_1",
-                    "name": f"Clean Label Natural {craving_query.title()}",
-                    "brand": "Organic Health Brand",
-                    "category": "Health Food",
-                    "natural_highlight": f"Crafted with 100% natural ingredients tailored for {med_str}.",
-                    "key_ingredients": "Organic whole food ingredients, sea salt, natural flavor",
-                    "medical_suitability": f"Formulated specifically to support {med_str} without harmful additives.",
-                    "allergen_guarantee": f"Certified 100% free from {allergies_str}.",
-                    "local_availability": f"Available for direct delivery to {loc_city or 'your city'}, {loc_country}",
-                    "local_retailer": "Amazon / Local Grocery",
-                    "estimated_price": f"{curr_sym}299 - {curr_sym}399" if curr_sym == "₹" else f"{curr_sym}5.99 - {curr_sym}7.99",
-                    "direct_search_query": f"organic {craving_query} {loc_country}"
-                }
-            ]
+            products = json.loads(cleaned_repaired)
+        except Exception:
+            try:
+                products = json.loads(cleaned)
+            except Exception as e:
+                print(f"JSON parsing error: {e}. Raw content: {cleaned[:300]}")
+                products = []
+
+    if not products:
+        curr_sym = "₹" if "india" in loc_country.lower() else "$"
+        products = [
+            {
+                "id": "prod_1",
+                "name": f"Clean Label Natural {craving_query.title()}",
+                "brand": "Organic Health Brand",
+                "category": "Health Food",
+                "natural_highlight": f"Crafted with 100% natural ingredients tailored for {med_str}.",
+                "key_ingredients": "Organic whole food ingredients, sea salt, natural flavor",
+                "medical_suitability": f"Formulated specifically to support {med_str} without harmful additives.",
+                "allergen_guarantee": f"Certified 100% free from {allergies_str}.",
+                "local_availability": f"Available for direct delivery to {loc_city or 'your city'}, {loc_country}",
+                "local_retailer": "Amazon / Local Grocery",
+                "estimated_price": f"{curr_sym}299 - {curr_sym}399" if curr_sym == "₹" else f"{curr_sym}5.99 - {curr_sym}7.99",
+                "direct_search_query": f"organic {craving_query} {loc_country}"
+            }
+        ]
 
     # Normalize fields (e.g. if key_ingredients is list instead of str)
     for p in products:

@@ -7,7 +7,7 @@ Guarantees a predictable, typed OcrAnalysisResult object without undefined varia
 """
 
 import io
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from pydantic import BaseModel, Field
 from PIL import Image
 
@@ -109,7 +109,20 @@ class OcrEngine:
         except Exception:
             image_part = None
 
-        report_text, provider_info = generate_clinical_assessment(vision_prompt, image_part)
+        try:
+            report_text, provider_info = generate_clinical_assessment(vision_prompt, image_part)
+        except Exception as e:
+            return OcrAnalysisResult(
+                success=False,
+                raw_text="",
+                verdict="UNABLE TO ASSESS",
+                reasons=[f"Vision model inference unavailable: {str(e)}"],
+                provider_used="SafeBite Vision Guardrail",
+                scrape_reason="Vision model inference unavailable. Please ensure GOOGLE_API_KEY is configured in your environment or Streamlit Secrets.",
+                final_output=f"### ⚠️ Multimodal Vision Engine Unavailable\n\nCould not connect to vision intelligence provider: {e}\n\nPlease verify your `GOOGLE_API_KEY` is configured in Streamlit secrets or switch to **📝 Paste Ingredients List** to perform deterministic clinical audits offline.",
+                error_message=str(e),
+                confidence=SourceConfidence.UNVERIFIED
+            )
 
         # Check if vision model flagged label as unreadable
         if "VERDICT: UNABLE TO ASSESS" in report_text.upper():

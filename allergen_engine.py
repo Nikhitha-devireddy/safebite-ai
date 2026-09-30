@@ -7,7 +7,7 @@ Strictly excludes false positives (e.g., cocoa butter, peanut butter != dairy bu
 
 import re
 from enum import Enum
-from typing import List, Dict, Set, Optional, Tuple
+from typing import List, Dict, Set, Optional, Tuple, Any
 from pydantic import BaseModel, Field
 
 from schemas import Product, Allergens, Ingredients, SourceConfidence
