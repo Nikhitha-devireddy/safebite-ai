@@ -221,11 +221,11 @@ class ProductSearchPipeline:
 
             passed_products.append(p)
 
-        # Sort products: prefer CLEAR, then HIGH confidence, then lowest sugar
+        # Sort products: prefer CLEAR/SAFE, then HIGH confidence, then lowest sugar
         passed_products.sort(
             key=lambda x: (
-                x.health_safety_verdict == "SAFE",
-                x.evidence.overall_confidence == SourceConfidence.HIGH,
+                x.health_safety_verdict in ("SAFE", "CLEAR"),
+                (x.evidence.overall_confidence == SourceConfidence.HIGH) if (x.evidence and x.evidence.overall_confidence) else False,
                 -(x.nutrition.sugar_g if x.nutrition and x.nutrition.sugar_g is not None else 999) if criteria["low_sugar"] else 0
             ),
             reverse=True

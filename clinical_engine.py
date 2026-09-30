@@ -22,6 +22,12 @@ class ClinicalRuleEngine:
     """
 
     @classmethod
+    def _get_product_confidence(cls, product: Product) -> SourceConfidence:
+        if product and product.evidence and product.evidence.overall_confidence:
+            return product.evidence.overall_confidence
+        return SourceConfidence.LOW
+
+    @classmethod
     def evaluate(
         cls,
         product: Product,
@@ -80,7 +86,7 @@ class ClinicalRuleEngine:
                             reason=f"Verified 100% free of '{ua}' and known derivatives in official ingredient list.",
                             evidence=f"Audited {len(ingredients.ingredient_list) if ingredients else 0} ingredients; zero triggers identified.",
                             matched_factors=[],
-                            confidence=product.evidence.overall_confidence,
+                            confidence=cls._get_product_confidence(product),
                             source="Ingredient Panel Audit"
                         ))
                     else:
@@ -178,7 +184,7 @@ class ClinicalRuleEngine:
                     reason=f"Parsed {item_count} declared ingredients." + (f" Identified additives/syrups: {', '.join(ingredients.additives)}." if (ingredients and ingredients.additives) else " Free from synthetic preservatives, artificial sweeteners, and high-fructose syrups."),
                     evidence=f"Audited ingredients: {', '.join(ingredients.ingredient_list[:6]) if ingredients and ingredients.ingredient_list else 'Declared'}",
                     matched_factors=ingredients.additives if ingredients else [],
-                    confidence=product.evidence.overall_confidence,
+                    confidence=cls._get_product_confidence(product),
                     source="Ingredient Declaration Audit"
                 ))
         else:
@@ -490,7 +496,7 @@ class ClinicalRuleEngine:
                     reason="No gluten-containing grains detected in audited ingredient list.",
                     evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero wheat/barley/rye identified.",
                     matched_factors=[],
-                    confidence=product.evidence.overall_confidence,
+                    confidence=cls._get_product_confidence(product),
                     source="Ingredient Panel"
                 ))
 
@@ -531,7 +537,7 @@ class ClinicalRuleEngine:
                 reason="Verified dairy and lactose free in audited ingredients.",
                 evidence="Zero milk or lactose solids declared.",
                 matched_factors=[],
-                confidence=product.evidence.overall_confidence,
+                confidence=cls._get_product_confidence(product),
                 source="Ingredient Panel"
             ))
 
@@ -661,7 +667,7 @@ class ClinicalRuleEngine:
                 reason="Free from high-purine ingredients and artificial phosphate binders.",
                 evidence="Zero yeast extracts or high-purine animal byproducts.",
                 matched_factors=[],
-                confidence=product.evidence.overall_confidence,
+                confidence=cls._get_product_confidence(product),
                 source="Ingredient Panel"
             ))
 
@@ -705,7 +711,7 @@ class ClinicalRuleEngine:
                 reason="Verified 100% plant-based: Zero dairy, eggs, honey, or animal derivatives.",
                 evidence="All audited ingredients are plant or mineral derived.",
                 matched_factors=[],
-                confidence=product.evidence.overall_confidence,
+                confidence=cls._get_product_confidence(product),
                 source="Ingredient Panel"
             ))
 
@@ -748,7 +754,7 @@ class ClinicalRuleEngine:
                 reason="Verified Lacto-Vegetarian: Free from meat, fish, slaughter rennet, and gelatin.",
                 evidence="All audited ingredients comply with vegetarian dietary standards.",
                 matched_factors=[],
-                confidence=product.evidence.overall_confidence,
+                confidence=cls._get_product_confidence(product),
                 source="Ingredient Panel"
             ))
 

@@ -66,7 +66,7 @@ class ProductSources:
         user_allergies = user_allergies or []
 
         # 1. URL Route
-        if clean_in.startswith("http://") or clean_in.startswith("https://"):
+        if clean_in.startswith("http://") or clean_in.startswith("https://") or any(clean_in.lower().startswith(d) for d in ["www.", "world.openfoodfacts.org", "amazon.", "bigbasket.", "blinkit.", "zepto."]):
             return self.fetch_by_url(
                 url=clean_in,
                 user_medical_history=user_medical_history,
@@ -75,9 +75,9 @@ class ProductSources:
                 food_preferences=food_preferences
             )
 
-        # 2. Barcode Route (8-14 digits)
-        digits_only = re.sub(r"\D", "", clean_in)
-        if len(digits_only) in (8, 12, 13, 14) and len(digits_only) == len(clean_in):
+        # 2. Barcode Route (8-14 digits, allowing spaces and hyphens)
+        digits_only = re.sub(r"[\s\-]", "", clean_in)
+        if digits_only.isdigit() and len(digits_only) in (8, 12, 13, 14):
             prod = self.fetch_by_barcode(
                 barcode=digits_only,
                 user_medical_history=user_medical_history,
@@ -107,7 +107,10 @@ class ProductSources:
     ) -> Optional[Product]:
         """Fetches product by barcode from Open Food Facts and cross-checks retailers."""
         user_allergies = user_allergies or []
-        cache_key = f"barcode:{barcode}"
+        barcode_clean = re.sub(r"\D", "", barcode.strip())
+        if not barcode_clean:
+            return None
+        cache_key = f"barcode:{barcode_clean}"
         cached_prod = self.source_manager.get_cached(cache_key, ttl_seconds=Config.CACHE_OFF_TTL)
         if cached_prod:
             # Re-evaluate clinical safety with current user profile
@@ -309,9 +312,12 @@ class ProductSources:
         food_preferences: str = ""
     ) -> Optional[Product]:
         user_allergies = user_allergies or []
+        clean_url = url.strip()
+        if clean_url and not clean_url.startswith(("http://", "https://")):
+            clean_url = "https://" + clean_url
 
         # If Open Food Facts URL, route directly to verified barcode lookup
-        off_barcode_match = re.search(r"openfoodfacts\.org/product/(\d+)", url)
+        off_barcode_match = re.search(r"openfoodfacts\.org/product/(\d+)", clean_url)
         if off_barcode_match:
             barcode = off_barcode_match.group(1)
             off_prod = self.fetch_by_barcode(
@@ -324,7 +330,7 @@ class ProductSources:
             if off_prod:
                 return off_prod
 
-        web_res = self.web_checker.inspect_url(url)
+        web_res = self.web_checker.inspect_url(clean_url)
         if not web_res.get("success"):
             return None
 
@@ -348,7 +354,7 @@ class ProductSources:
             currency=web_res.get("currency", "₹"),
             pack_size=pack_size,
             in_stock=True,
-            product_url=url,
+            product_url=clean_url,
             availability_status="Available on Website",
             location=location,
             retrieved_at=now_str,
@@ -373,7 +379,7 @@ class ProductSources:
                 verified_offers.append(ext_off)
 
         sources_consulted = ["Direct Web Inspection"] + [o.retailer for o in verified_offers if o.retailer != "Direct Web / Official Store"]
-        source_urls = [url] + [o.product_url for o in verified_offers]
+        source_urls = [clean_url] + [o.product_url for o in verified_offers]
 
         evidence, _ = EvidenceEngine.cross_validate(
             nutrition=nutrition,

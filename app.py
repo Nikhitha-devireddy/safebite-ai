@@ -434,7 +434,7 @@ def record_to_history(product: Product, input_mode: str):
         "brand": product.brand,
         "verdict": product.health_safety_verdict or "NOT VERIFIED",
         "input_mode": input_mode,
-        "confidence": product.evidence.overall_confidence.value,
+        "confidence": product.evidence.overall_confidence.value if (product.evidence and product.evidence.overall_confidence) else "UNVERIFIED",
         "product_obj": product
     }
     # Deduplicate by product ID
@@ -695,7 +695,7 @@ with nav_search:
                         <div>
                             <span class="product-brand">{prod.brand}</span>
                             <h3 class="product-header-title">{prod.name} {f'· {prod.pack_size}' if prod.pack_size else ''}</h3>
-                            <span style="font-size: 0.8rem; color: #64748B;">Variant: {prod.variant or 'Standard'} | Confidence: <strong>{prod.evidence.overall_confidence.value}</strong></span>
+                            <span style="font-size: 0.8rem; color: #64748B;">Variant: {prod.variant or 'Standard'} | Confidence: <strong>{prod.evidence.overall_confidence.value if (prod.evidence and prod.evidence.overall_confidence) else 'UNVERIFIED'}</strong></span>
                         </div>
                         <div>
                             {render_verdict_badge(prod.health_safety_verdict)}
@@ -774,12 +774,15 @@ with nav_check:
             key="url_check_input"
         )
         if st.button("Audit URL Content Now", type="primary", key="btn_audit_url"):
-            if not url_input.strip():
+            clean_url = url_input.strip()
+            if not clean_url:
                 st.warning("Please provide a valid product URL.")
             else:
+                if not clean_url.startswith(("http://", "https://")):
+                    clean_url = "https://" + clean_url
                 with st.spinner("Scraping webpage, inspecting JSON-LD schema, and analyzing clinical safety..."):
                     checked_product = product_sources.fetch_by_url(
-                        url=url_input.strip(),
+                        url=clean_url,
                         user_medical_history=st.session_state.get("medical_history", ""),
                         user_allergies=st.session_state.get("allergies_list", []),
                         location=st.session_state.get("location_dict", {}).get("city", "Bengaluru"),
@@ -897,12 +900,13 @@ with nav_check:
     else:
         barcode_in = st.text_input("Enter 8, 12, or 13-digit EAN/UPC barcode:", placeholder="e.g. 737628064502 or 890600102030", key="barcode_input")
         if st.button("Lookup Barcode in Open Food Facts", type="primary", key="btn_barcode_lookup"):
-            if not barcode_in.strip():
+            clean_b = barcode_in.strip().replace(" ", "").replace("-", "")
+            if not clean_b:
                 st.warning("Please enter a numeric barcode.")
             else:
-                with st.spinner(f"Querying Open Food Facts database for barcode {barcode_in.strip()}..."):
+                with st.spinner(f"Querying Open Food Facts database for barcode {clean_b}..."):
                     checked_product = product_sources.fetch_by_barcode(
-                        barcode=barcode_in.strip(),
+                        barcode=clean_b,
                         user_medical_history=st.session_state.get("medical_history", ""),
                         user_allergies=st.session_state.get("allergies_list", []),
                         location=st.session_state.get("location_dict", {}).get("city", "Bengaluru"),
@@ -912,7 +916,7 @@ with nav_check:
                         record_to_history(checked_product, "Barcode Lookup")
                         st.session_state["active_product_detail"] = checked_product
                     else:
-                        st.error(f"Barcode '{barcode_in}' was not found in the Open Food Facts public registry.")
+                        st.error(f"Barcode '{barcode_in.strip()}' was not found in the Open Food Facts public registry.")
 
     # ---------------------------------------------------------------------
     # DETAILED PRODUCT INSPECTION REPORT (Sections 23 & 24)
@@ -1057,15 +1061,18 @@ with nav_check:
             # 5. EVIDENCE PROVENANCE & CONFLICT DETECTION (Section 17)
             st.markdown("### 🔍 Evidence Provenance & Audit Trail")
             ev = detail_prod.evidence
+            ev_conf = ev.overall_confidence.value if (ev and ev.overall_confidence) else "UNVERIFIED"
+            sources_txt = ", ".join(ev.sources_consulted) if (ev and ev.sources_consulted) else "Packaging Audit"
+            last_v = ev.last_verified if (ev and ev.last_verified) else "Recent"
             st.markdown(f"""
             <div class="evidence-provenance">
-                <strong>Overall Evidence Confidence:</strong> {ev.overall_confidence.value}<br>
-                <strong>Authoritative Sources Consulted:</strong> {', '.join(ev.sources_consulted)}<br>
-                <strong>Last Data Audit:</strong> {ev.last_verified}
+                <strong>Overall Evidence Confidence:</strong> {ev_conf}<br>
+                <strong>Authoritative Sources Consulted:</strong> {sources_txt}<br>
+                <strong>Last Data Audit:</strong> {last_v}
             </div>
             """, unsafe_allow_html=True)
 
-            if ev.conflicts_detected:
+            if ev and ev.conflicts_detected:
                 for conf in ev.conflicts_detected:
                     st.markdown(f"""<div class="evidence-conflict-alert">⚠️ <strong>Cross-Source Conflict Detected:</strong><br>{conf}</div>""", unsafe_allow_html=True)
 
@@ -1123,8 +1130,8 @@ with nav_compare:
                         <strong>Total Sugar:</strong> {f"{p_nut.sugar_g:.1f}g" if p_nut and p_nut.sugar_g is not None else "Not verified"}<br>
                         <strong>Carbs:</strong> {f"{p_nut.carbs_g:.1f}g" if p_nut and p_nut.carbs_g is not None else "Not verified"}<br>
                         <strong>Sodium:</strong> {f"{p_nut.sodium_mg:.0f}mg" if p_nut and p_nut.sodium_mg is not None else "Not verified"}<br>
-                        <strong>Clean Label:</strong> {'🌱 Yes' if p.ingredients and p.ingredients.is_clean_label else '⚠️ Contains Additives'}<br>
-                        <strong>Evidence:</strong> {p.evidence.overall_confidence.value}
+                        <strong>Clean Label:</strong> {'🌱 Yes' if (p.ingredients and p.ingredients.is_clean_label) else ('⚠️ Contains Additives' if (p.ingredients and p.ingredients.additives) else '—')}<br>
+                        <strong>Evidence:</strong> {p.evidence.overall_confidence.value if (p.evidence and p.evidence.overall_confidence) else 'UNVERIFIED'}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1270,9 +1277,10 @@ if sel_order_prod:
         st.markdown(f"#### Step 1: Quantity & Regional Delivery for **{p_name}**")
         q_col, a_col = st.columns(2)
         with q_col:
-            order_qty = st.number_input("Quantity:", min_value=1, max_value=10, value=1, key="order_qty_input")
+            order_qty = st.number_input("Quantity:", min_value=1, max_value=10, value=st.session_state.get("order_qty", 1), key="order_qty_input")
         with a_col:
-            order_addr = st.text_input("Destination:", value=st.session_state.get("location_dict", {}).get("address", "12 Indiranagar 100ft Rd"), key="order_addr_input")
+            default_dest = st.session_state.get("order_destination") or st.session_state.get("location_dict", {}).get("address", "12 Indiranagar 100ft Rd")
+            order_addr = st.text_input("Destination:", value=default_dest, key="order_addr_input")
 
         c1, c2 = st.columns(2)
         with c1:
@@ -1281,6 +1289,8 @@ if sel_order_prod:
                 st.rerun()
         with c2:
             if st.button("Proceed to Clinical Clearance ➔", type="primary", key="btn_step1_next"):
+                st.session_state["order_qty"] = int(order_qty)
+                st.session_state["order_destination"] = order_addr.strip()
                 st.session_state["wizard_step"] = 2
                 st.rerun()
 
@@ -1320,13 +1330,19 @@ if sel_order_prod:
     # Step 3: Authorization & Dispatch
     elif w_step == 3:
         st.markdown("#### Step 3: Final Dispatch & Direct Retail Checkout")
-        subtotal = p_price_val
+        curr_qty = int(st.session_state.get("order_qty", 1))
+        curr_dest = st.session_state.get("order_destination") or st.session_state.get("location_dict", {}).get("address", "12 Indiranagar 100ft Rd")
+        unit_price = p_price_val
+        total_amount = unit_price * curr_qty
+
         st.markdown(f"""
         <div style="background:white; border:1px solid #E2E8F0; border-radius:8px; padding:16px; margin-bottom:14px;">
             <strong>Item:</strong> {p_name} by {p_brand}<br>
-            <strong>Estimated Unit Price:</strong> ₹{subtotal:.2f}<br>
+            <strong>Quantity:</strong> {curr_qty} unit(s)<br>
+            <strong>Delivery Destination:</strong> {curr_dest}<br>
+            <strong>Estimated Unit Price:</strong> ₹{unit_price:.2f}<br>
             <strong>Health Courier Delivery:</strong> Free<br>
-            <strong>Total Amount:</strong> <strong>₹{subtotal:.2f}</strong>
+            <strong>Total Amount:</strong> <strong>₹{total_amount:.2f}</strong>
         </div>
         """, unsafe_allow_html=True)
 

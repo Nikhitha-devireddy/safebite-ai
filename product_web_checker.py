@@ -45,6 +45,8 @@ class ProductWebChecker:
         Returns a dictionary with product metadata, nutrition, ingredients, allergens, and raw offer.
         """
         clean_url = url.strip()
+        if clean_url and not clean_url.startswith(("http://", "https://")):
+            clean_url = "https://" + clean_url
         now_str = datetime.now(timezone.utc).isoformat()
 
         result = {

@@ -186,7 +186,19 @@ class Product(BaseModel):
     allergens: Optional[Allergens] = None
     dietary_tags: List[str] = Field(default_factory=list, description="Vegan, Vegetarian, Gluten-Free, Diabetic-Friendly, etc.")
     retailer_offers: List[RetailerOffer] = Field(default_factory=list)
-    evidence: Evidence
+    evidence: Evidence = Field(
+        default_factory=lambda: Evidence(
+            manufacturer_verified=False,
+            open_food_facts_verified=False,
+            retailer_verified=False,
+            sources_consulted=[],
+            source_urls=[],
+            conflicts_detected=[],
+            overall_confidence=SourceConfidence.LOW,
+            last_verified="Not verified"
+        ),
+        description="Source provenance, cross-validation, and confidence tracking"
+    )
     health_safety_verdict: Optional[str] = Field(default="NOT VERIFIED", description="SAFE, UNSAFE, PARTIALLY SAFE, or NOT VERIFIED")
     health_safety_reasons: List[str] = Field(default_factory=list)
     clinical_assessments: List[ClinicalAssessment] = Field(default_factory=list, description="Condition-specific clinical evaluation list")
