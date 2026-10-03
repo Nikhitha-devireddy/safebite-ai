@@ -216,11 +216,80 @@ HEALTH_PRESETS: Dict[str, HealthPreset] = {
     )
 }
 
+# Specialized Indian Cultural, Religious & Clinical Presets
+INDIAN_HEALTH_PRESETS: Dict[str, HealthPreset] = {
+    "strict_jain": HealthPreset(
+        id="strict_jain",
+        name="Strict Jain",
+        icon="🕉️",
+        tagline="Zero Root Veg (Kandmool) · No Onion · No Garlic · No Potato",
+        user_name="Aarav",
+        medical_history="Strict Jain Ahimsa Dietary Vow",
+        allergies=[],
+        food_preferences="Strict Jain (Zero Root Vegetables, No Mushroom, No Honey, No Yeast)",
+        location={"country": "India", "city": "Mumbai", "state": "Maharashtra", "pincode": "400001", "address": "Marine Drive"},
+        filters=PresetFilterCriteria(
+            clinical_constraints=["No onion", "No garlic", "No potato", "No carrot", "No radish", "No mushroom", "No yeast", "No honey"]
+        ),
+        sample_queries=["jain snacks without potato or onion", "jain cookies without yeast", "jain roasted makhana"]
+    ),
+    "navratri_vrat": HealthPreset(
+        id="navratri_vrat",
+        name="Navratri Vrat",
+        icon="🪔",
+        tagline="Sacred Fasting · Sendha Namak Only · Kuttu / Singhara Flours",
+        user_name="Pooja",
+        medical_history="Navratri / Ekadashi Sacred Vrat Fasting",
+        allergies=[],
+        food_preferences="Vrat Fasting (Sendha Namak Only, Kuttu, Singhara, Sabudana, No Regular Grains)",
+        location={"country": "India", "city": "Delhi", "state": "Delhi", "pincode": "110001", "address": "Connaught Place"},
+        filters=PresetFilterCriteria(
+            clinical_constraints=["Sendha namak only", "No wheat", "No rice", "No onion", "No garlic", "No regular salt"]
+        ),
+        sample_queries=["navratri vrat snacks sendha namak", "kuttu flour cookies", "roasted makhana vrat"]
+    ),
+    "shree_anna_millet": HealthPreset(
+        id="shree_anna_millet",
+        name="Shree Anna Millets",
+        icon="🌾",
+        tagline="Indian National Millet Mission · Low GI Ragi, Jowar & Bajra",
+        user_name="Rohan",
+        medical_history="Metabolic Syndrome / Low-GI Ancient Grain Optimization",
+        allergies=[],
+        food_preferences="Shree Anna Millets (Ragi, Jowar, Bajra, Sattu, Foxnuts)",
+        location={"country": "India", "city": "Bengaluru", "state": "Karnataka", "pincode": "560001", "address": "Indiranagar"},
+        filters=PresetFilterCriteria(
+            max_total_sugar_g=5.0,
+            clinical_constraints=["Zero refined maida", "Ancient Indian millets only", "Low glycemic index"]
+        ),
+        sample_queries=["ragi almond cookies zero maida", "jowar puffs clean label", "sattu protein drink"]
+    ),
+    "hypertension_achaar_safe": HealthPreset(
+        id="hypertension_achaar_safe",
+        name="Heart & Low Sodium",
+        icon="🫀",
+        tagline="Zero Papad/Achaar Sodium Overload (< 140mg Sodium)",
+        user_name="Vikram",
+        medical_history="Stage 1 Hypertension / Cardiac Care (Strict Low Sodium)",
+        allergies=[],
+        food_preferences="Low Sodium, Heart Healthy, Zero Palm Oil",
+        location={"country": "India", "city": "Hyderabad", "state": "Telangana", "pincode": "500001", "address": "Banjara Hills"},
+        filters=PresetFilterCriteria(
+            max_sodium_mg=140.0,
+            clinical_constraints=["No high-sodium achaar", "No papad", "Zero palm olein"]
+        ),
+        sample_queries=["low sodium snacks without palm oil", "heart safe cookies", "unsweetened roasted makhana"]
+    )
+}
+
 def get_preset(preset_id: str) -> Optional[HealthPreset]:
-    return HEALTH_PRESETS.get(preset_id)
+    return HEALTH_PRESETS.get(preset_id) or INDIAN_HEALTH_PRESETS.get(preset_id)
 
 def get_all_presets() -> List[HealthPreset]:
     return list(HEALTH_PRESETS.values())
+
+def get_indian_presets() -> List[HealthPreset]:
+    return list(INDIAN_HEALTH_PRESETS.values())
 
 def apply_preset_to_session(preset_id: str, session_state: Any) -> bool:
     """

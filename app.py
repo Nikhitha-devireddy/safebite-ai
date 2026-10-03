@@ -33,12 +33,25 @@ try:
     from product_search import ProductSearchPipeline
     from product_web_checker import ProductWebChecker
     from ocr_engine import OcrEngine, OcrAnalysisResult
-    from presets import HEALTH_PRESETS, get_all_presets, apply_preset_to_session
+    from presets import HEALTH_PRESETS, get_all_presets, get_indian_presets, apply_preset_to_session
     from location_manager import LocationManager, LocationProfile
     from recommendations import recommend_safe_products, process_automated_order
     from source_manager import SourceManager
     from nutrition_extractor import NutritionExtractor
     from product_normalizer import ProductNormalizer
+    from indian_engine import (
+        FssaiComplianceEngine,
+        IndianDietaryGuardrail,
+        IndianAdulterationDetector,
+        AyurvedicEngine,
+        MilletRecommendationEngine
+    )
+    from cgm_simulator import (
+        CgmGlucosePredictor,
+        NovaProcessingScorer,
+        ClinicalRadarMatrix,
+        SmartSafeSwapEngine
+    )
 except Exception as e:
     import traceback
     st.set_page_config(page_title="SafeBite AI - Startup Diagnostic", layout="wide")
@@ -530,6 +543,23 @@ with nav_home:
                     st.toast(f"Applied preset: {preset.name}", icon=preset.icon)
                     st.rerun()
 
+        st.markdown("---")
+        st.markdown("##### 🇮🇳 Indian Cultural, Religious & Clinical Presets:")
+        indian_presets = get_indian_presets()
+        cols_ind = st.columns(len(indian_presets))
+        for k, ipreset in enumerate(indian_presets):
+            with cols_ind[k]:
+                if st.button(
+                    f"{ipreset.icon} {ipreset.name}",
+                    key=f"btn_pre_ind_{ipreset.id}",
+                    use_container_width=True,
+                    help=ipreset.tagline,
+                    on_click=apply_preset_to_session,
+                    args=(ipreset.id, st.session_state)
+                ):
+                    st.toast(f"Applied preset: {ipreset.name}", icon=ipreset.icon)
+                    st.rerun()
+
     # If home search triggered
     if run_home_search and home_query.strip():
         with st.spinner("🔍 Consulting Open Food Facts, Amazon, BigBasket, Blinkit, and Zepto in parallel..."):
@@ -993,7 +1023,14 @@ with nav_check:
 
     check_mode = st.radio(
         "Choose Inspection Method:",
-        ["🌐 Product URL (Auto-Inspection)", "📝 Paste Ingredients List", "📸 Upload Product Label Photo (Multimodal OCR)", "🔢 Barcode Lookup"],
+        [
+            "🌐 Product URL (Auto-Inspection)",
+            "📝 Paste Ingredients List",
+            "📸 Upload Label Photo",
+            "🔢 Barcode Lookup",
+            "📷 Live Camera Scanner",
+            "🎙️ Voice Query Assistant"
+        ],
         horizontal=True,
         key="inspect_method_radio"
     )
@@ -1131,7 +1168,7 @@ with nav_check:
                             st.session_state["active_product_detail"] = checked_product
 
     # MODE 4: BARCODE LOOKUP
-    else:
+    elif "🔢 Barcode" in check_mode:
         st.markdown("##### ⚡ 1-Click Reference Barcodes (Click to Audit Instantly):")
         b_cols = st.columns(4)
         sample_barcodes = [
@@ -1166,6 +1203,85 @@ with nav_check:
                     else:
                         st.error(f"Barcode '{target_b}' was not found in the verified registry.")
 
+    # MODE 5: LIVE CAMERA SCANNER (WEBCAM / PHONE CAMERA)
+    elif "📷 Live Camera" in check_mode:
+        st.markdown("##### 📷 Real-Time Live Camera Packaging Scanner")
+        st.caption("Point your camera directly at the packaging, ingredient list, or nutrition panel:")
+        cam_pic = st.camera_input("Point camera at packaging to capture live frame:", key="camera_label_input")
+        if cam_pic:
+            col_cimg, col_cproc = st.columns([1, 2])
+            with col_cimg:
+                st.image(cam_pic, caption="Captured Packaging Frame", use_container_width=True)
+            with col_cproc:
+                if st.button("Transcribe & Audit Live Camera Snapshot", type="primary", key="btn_camera_run"):
+                    with st.spinner("Executing real-time multimodal OCR transcription and clinical safety screening..."):
+                        img_bytes = cam_pic.getvalue()
+                        ocr_res = OcrEngine.analyze_label_image(
+                            image_bytes=img_bytes,
+                            mime_type="image/jpeg",
+                            user_name=st.session_state.get("user_name", "Alex"),
+                            medical_history=st.session_state.get("medical_history", ""),
+                            allergies=st.session_state.get("allergies_list", []),
+                            food_preferences=st.session_state.get("food_preferences", "")
+                        )
+                        if not ocr_res.success or ocr_res.verdict == "UNABLE TO ASSESS":
+                            st.warning(f"⚠️ {ocr_res.scrape_reason}")
+                            st.markdown(ocr_res.final_output)
+                        else:
+                            st.success("✅ Packaging frame transcribed and clinically screened!")
+                            checked_product = Product(
+                                id=ProductNormalizer.generate_product_id("Camera", ocr_res.product_name),
+                                name=ocr_res.product_name,
+                                brand=ocr_res.brand,
+                                nutrition=ocr_res.nutrition,
+                                ingredients=ocr_res.ingredients,
+                                allergens=ocr_res.allergens,
+                                evidence=Evidence(
+                                    manufacturer_verified=True,
+                                    sources_consulted=["Live Camera Multimodal OCR"],
+                                    overall_confidence=ocr_res.confidence,
+                                    last_verified="Just now"
+                                ),
+                                health_safety_verdict=ocr_res.verdict,
+                                health_safety_reasons=ocr_res.reasons
+                            )
+                            record_to_history(checked_product, "Live Camera Scanner")
+                            st.session_state["active_product_detail"] = checked_product
+
+    # MODE 6: NATURAL VOICE QUERY ASSISTANT
+    else:
+        st.markdown("##### 🎙️ Hands-Free Natural Voice Assistant ('Hey SafeBite, can I eat this?')")
+        st.caption("Ask questions hands-free or test with instant voice simulation queries:")
+        v_cols = st.columns(3)
+        sample_voice = [
+            "Can I eat Haldiram Bhujia with Hypertension?",
+            "Is The Whole Truth bar safe for Dairy Allergy?",
+            "Check if Maggi noodles have palm oil"
+        ]
+        voice_pick = None
+        for v_idx, v_text in enumerate(sample_voice):
+            with v_cols[v_idx]:
+                if st.button(f"🗣️ \"{v_text[:28]}...\"", key=f"voice_chip_{v_idx}"):
+                    voice_pick = v_text
+        voice_query = st.text_input("Speak or Type Question:", value=voice_pick or "", placeholder="e.g. 'Can I eat this dark chocolate with Type 2 Diabetes?'", key="voice_query_text")
+        if st.button("Ask SafeBite Assistant ➔", type="primary", key="btn_run_voice") or voice_pick:
+            vq = (voice_pick or voice_query).strip()
+            if vq:
+                with st.spinner("Analyzing question through Clinical Pharmacology Engine..."):
+                    clean_q = re.sub(r"(?i)^(can i eat|is|check if|does)\s*", "", vq).replace("safe", "").strip()
+                    target_prod = product_sources.fetch_by_query(
+                        query=clean_q,
+                        user_medical_history=st.session_state.get("medical_history", ""),
+                        user_allergies=st.session_state.get("allergies_list", []),
+                        location=st.session_state.get("location_dict", {}).get("city", "Bengaluru"),
+                        food_preferences=st.session_state.get("food_preferences", "")
+                    )
+                    if target_prod:
+                        record_to_history(target_prod, "Voice Query Assistant")
+                        st.session_state["active_product_detail"] = target_prod
+                        st.success(f"🗣️ Assistant Verdict for '{target_prod.name}': {target_prod.health_safety_verdict}")
+                        st.info(f"Clinical Assessment: {', '.join(target_prod.health_safety_reasons[:2])}")
+
     # ---------------------------------------------------------------------
     # DETAILED PRODUCT INSPECTION REPORT (Sections 23 & 24)
     # ---------------------------------------------------------------------
@@ -1190,6 +1306,51 @@ with nav_check:
         </div>
         """, unsafe_allow_html=True)
 
+        raw_ing_text = detail_prod.ingredients.raw_text if detail_prod.ingredients else ""
+        
+        # 1. FSSAI & Packaging Regulatory Audit
+        fssai_lic = FssaiComplianceEngine.validate_license(raw_ing_text + " " + (detail_prod.description or ""))
+        fssai_logo = FssaiComplianceEngine.detect_fssai_logos(detail_prod.name, raw_ing_text)
+        hfss_res = FssaiComplianceEngine.calculate_hfss(detail_prod.nutrition)
+        
+        # 2. Indian Adulteration & FMCG Masking Radar
+        adulterant_res = IndianAdulterationDetector.audit_adulterants(detail_prod.name, raw_ing_text)
+        
+        # 3. Simulated CGM Blood Sugar Predictor
+        is_diab = "diabet" in st.session_state.get("medical_history", "").lower()
+        cgm_res = CgmGlucosePredictor.simulate_glucose_curve(detail_prod.nutrition, is_diabetic=is_diab)
+        
+        # 4. NOVA Processing & Clean Label Toxicity
+        additives_cnt = len(detail_prod.ingredients.additives) if (detail_prod.ingredients and detail_prod.ingredients.additives) else 0
+        nova_res = NovaProcessingScorer.evaluate_nova(detail_prod.name, raw_ing_text, additives_count=additives_cnt)
+        
+        # 5. 6-Axis Clinical Radar Matrix
+        radar_scores = ClinicalRadarMatrix.compute_radar_scores(detail_prod.nutrition, detail_prod.ingredients, detail_prod.allergens)
+        
+        # 6. Smart Safe Swaps
+        smart_swaps = SmartSafeSwapEngine.get_smart_swaps(detail_prod.name, detail_prod.category or "")
+        
+        # 7. Indian Dietary & Ayurvedic Viruddha Ahara
+        jain_res = IndianDietaryGuardrail.evaluate_jain(raw_ing_text)
+        vrat_res = IndianDietaryGuardrail.evaluate_vrat(raw_ing_text)
+        viruddha_combos = AyurvedicEngine.evaluate_viruddha_ahara(raw_ing_text)
+
+        # Regulatory & FSSAI Summary Ribbon
+        st.markdown(f"""
+        <div style="background:#F8FAFC; border:1px solid #E2E8F0; border-radius:8px; padding:12px 16px; margin-bottom:16px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+                <strong>Regulatory Mark:</strong> <span style="font-size:0.9rem;">{fssai_logo['badge']}</span>
+                {f" | <span style='font-size:0.85rem; color:#0284C7; font-weight:600;'>{fssai_logo['fortified_badge']}</span>" if fssai_logo.get('fortified_badge') else ""}
+            </div>
+            <div>
+                <span style="font-size:0.85rem; color:#475569; font-weight:600;">{fssai_lic['formatted_badge']}</span>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        if hfss_res["is_hfss"]:
+            st.error(f"🚨 **{hfss_res['summary']}** — Parameters: {', '.join(hfss_res['flags'])}")
+
         d_col1, d_col2 = st.columns([1, 1])
 
         with d_col1:
@@ -1204,6 +1365,18 @@ with nav_check:
                     st.success("🌱 **Clean Label Verified:** Zero synthetic preservatives, artificial sweeteners, or high-fructose syrups identified.")
             else:
                 st.info("⚠️ Full ingredients declaration is unverified on this listing.")
+
+            # Indian Adulteration & FMCG Masking Radar
+            st.markdown("### 🔍 Indian Adulteration & FMCG Masking Radar")
+            if adulterant_res["has_palm_oil"]:
+                st.warning(f"🌴 **Palm Oil / Palmolein Alert:** Contains {', '.join(adulterant_res['palm_oil_terms'])}. High in atherogenic palmitic acid.\n\n*Healthy Swaps:* {', '.join(adulterant_res['clean_fat_swaps'])}")
+            if adulterant_res["atta_masking"]:
+                st.error(adulterant_res["atta_masking"]["message"])
+            if adulterant_res["hidden_sugars"]:
+                st.warning(f"🍬 **Hidden Industrial Sugar Syrups ({len(adulterant_res['hidden_sugars'])}):** {', '.join(adulterant_res['hidden_sugars'])}")
+            if adulterant_res["class_2_preservatives"]:
+                st.warning(f"🛑 **Class II Preservatives ({len(adulterant_res['class_2_preservatives'])}):** {', '.join(adulterant_res['class_2_preservatives'])}")
+            st.caption(f"🛡️ **Packaging Clean Purity Score:** `{adulterant_res['purity_score']}/100`")
 
             # 2. NUTRITION FACTS PANEL (OPTIONAL / IF REPORTED)
             d_nut = detail_prod.nutrition
@@ -1260,6 +1433,25 @@ with nav_check:
                 with st.expander("ℹ️ Nutrition Facts Table (Optional / Not Required)"):
                     st.caption("Clinical safety and allergen checks are evaluated directly from the declared ingredient formulation. A separate numerical nutrition table is not required.")
 
+            # Simulated CGM Blood Sugar Predictor
+            if cgm_res["available"]:
+                st.markdown("### 📈 Continuous Glucose Monitor (CGM) Trajectory")
+                st.caption("Simulated 180-minute postprandial blood sugar response with gastric buffer modeling:")
+                st.markdown(cgm_res["svg_chart"], unsafe_allow_html=True)
+                cgm_c1, cgm_c2, cgm_c3 = st.columns(3)
+                with cgm_c1:
+                    st.metric("Net Carbs", f"{cgm_res['net_carbs_g']}g")
+                with cgm_c2:
+                    st.metric("Glycemic Load", f"{cgm_res['glycemic_load']}")
+                with cgm_c3:
+                    st.metric("Peak Sugar", f"{cgm_res['peak_glucose']:.0f} mg/dL")
+                if cgm_res["risk_level"] == "DANGEROUS_SPIKE":
+                    st.error(cgm_res["summary"])
+                elif cgm_res["risk_level"] == "MODERATE_SPIKE":
+                    st.warning(cgm_res["summary"])
+                else:
+                    st.success(cgm_res["summary"])
+
         with d_col2:
             # 3. CLINICAL CONDITION-BY-CONDITION AUDIT (Section 24)
             st.markdown("### 🩺 SafeBite Clinical Safety Assessment")
@@ -1286,7 +1478,28 @@ with nav_check:
                 for r in detail_prod.health_safety_reasons:
                     st.markdown(f"- {r}")
 
-            # 4. ALLERGEN SAFETY DECLARATION
+            # 4. NOVA Processing & Clean Label Toxicity
+            st.markdown("### 🏭 Ultra-Processed Food (UPF) NOVA Classification")
+            st.markdown(f"""
+            <div style="background:white; border:2px solid {nova_res['nova_color']}; border-radius:8px; padding:12px; margin-bottom:12px;">
+                <strong style="color:{nova_res['nova_color']}; font-size:1.0rem;">{nova_res['nova_badge']}</strong><br>
+                <small style="color:#475569;">{nova_res['nova_desc']}</small><br>
+                <div style="margin-top:6px; font-weight:700; font-size:0.88rem; color:#0F172A;">
+                    Clean Formulation Score: <span style="color:{nova_res['nova_color']};">{nova_res['clean_label_score']}/100</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 5. 6-Axis Clinical Radar Matrix
+            st.markdown("### ⚖️ 6-Axis Clinical Nutritional Matrix")
+            for axis_name, axis_val in radar_scores.items():
+                r_col1, r_col2 = st.columns([3, 1])
+                with r_col1:
+                    st.progress(int(axis_val) / 100.0, text=f"{axis_name}")
+                with r_col2:
+                    st.caption(f"**{axis_val:.0f}/100**")
+
+            # 6. ALLERGEN SAFETY DECLARATION
             st.markdown("### 🚫 Allergen Declarations & Traces")
             d_allg = detail_prod.allergens
             if d_allg:
@@ -1306,7 +1519,24 @@ with nav_check:
                     else:
                         st.markdown("- *None reported*")
 
-            # 5. EVIDENCE PROVENANCE & CONFLICT DETECTION (Section 17)
+            # 7. Indian Cultural & Ayurvedic Check
+            st.markdown("### 🕉️ Indian Cultural & Ayurvedic Guardrail")
+            i_col1, i_col2 = st.columns(2)
+            with i_col1:
+                st.markdown(f"**Jain Dietary Ahimsa:**\n\n{jain_res['badge']}")
+                if jain_res["violations"]:
+                    for jv in jain_res["violations"][:2]:
+                        st.caption(f"- {jv}")
+            with i_col2:
+                st.markdown(f"**Navratri Vrat:**\n\n{vrat_res['badge']}")
+                if vrat_res["violations"]:
+                    for vv in vrat_res["violations"][:2]:
+                        st.caption(f"- {vv}")
+
+            if viruddha_combos:
+                st.warning(f"⚠️ **Ayurvedic Viruddha Ahara:** {viruddha_combos[0]['name']}\n\n*{viruddha_combos[0]['risk']}*")
+
+            # 8. EVIDENCE PROVENANCE & CONFLICT DETECTION (Section 17)
             st.markdown("### 🔍 Evidence Provenance & Audit Trail")
             ev = detail_prod.evidence
             ev_conf = ev.overall_confidence.value if (ev and ev.overall_confidence) else "UNVERIFIED"
@@ -1324,12 +1554,33 @@ with nav_check:
                 for conf in ev.conflicts_detected:
                     st.markdown(f"""<div class="evidence-conflict-alert">⚠️ <strong>Cross-Source Conflict Detected:</strong><br>{conf}</div>""", unsafe_allow_html=True)
 
-            # Order assistance button
-            st.markdown("---")
-            if st.button("🛒 Proceed to Autonomous Order Assistance Wizard ➔", type="primary", key="btn_go_order"):
-                st.session_state["wizard_selected_prod"] = detail_prod.model_dump()
-                st.session_state["wizard_step"] = 1
-                st.toast("Product loaded into Autonomous Order Wizard!", icon="🛒")
+        # 9. Smart Safe Swaps Container
+        st.markdown("---")
+        st.markdown("### 🔄 1-Click Smart Safe Swaps (Clean Drop-In Alternatives)")
+        st.caption("Identical food category replacements with verified clean ingredients, zero palm oil, and improved macros:")
+        sw_cols = st.columns(len(smart_swaps))
+        for sw_i, sw in enumerate(smart_swaps):
+            with sw_cols[sw_i]:
+                st.markdown(f"""
+                <div style="background:white; border:1px solid #CBD5E1; border-radius:8px; padding:14px; min-height:175px;">
+                    <span style="font-size:0.72rem; color:#059669; font-weight:700;">{sw['brand']}</span>
+                    <h4 style="margin:2px 0 8px 0; font-size:0.95rem; color:#0F172A;">{sw['swap_name']}</h4>
+                    <div style="display:flex; gap:6px; margin-bottom:8px;">
+                        <span style="background:#ECFDF5; color:#065F46; padding:2px 6px; border-radius:4px; font-weight:700; font-size:0.78rem;">{sw['delta_sugar']}</span>
+                        <span style="background:#EFF6FF; color:#1E40AF; padding:2px 6px; border-radius:4px; font-weight:700; font-size:0.78rem;">{sw['delta_fiber']}</span>
+                    </div>
+                    <small style="color:#64748B;">{sw['clean_perks']}</small>
+                </div>
+                """, unsafe_allow_html=True)
+                sw_q_enc = urllib.parse.quote(sw['buy_query'])
+                st.markdown(f'<a href="https://www.amazon.in/s?k={sw_q_enc}" target="_blank" style="display:inline-block; width:100%; text-align:center; padding:7px 8px; margin-top:6px; background:#0F172A; color:white; border-radius:6px; font-weight:600; font-size:0.8rem; text-decoration:none;">🛒 1-Click Buy Swap ↗</a>', unsafe_allow_html=True)
+
+        # Order assistance button
+        st.markdown("---")
+        if st.button("🛒 Proceed to Autonomous Order Assistance Wizard ➔", type="primary", key="btn_go_order"):
+            st.session_state["wizard_selected_prod"] = detail_prod.model_dump()
+            st.session_state["wizard_step"] = 1
+            st.toast("Product loaded into Autonomous Order Wizard!", icon="🛒")
 
 # =========================================================================
 # TAB 4: COMPARE MODE (Section 26)
