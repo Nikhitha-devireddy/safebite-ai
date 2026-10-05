@@ -259,7 +259,6 @@ def render_scanner_view(product_sources: ProductSources):
                                         record_to_history(fb_prod, f"Barcode Assist ({active_bc})")
                                         st.session_state["active_product_detail"] = fb_prod
                                         try:
-                                            import supabase_client
                                             if supabase_client.is_supabase_enabled():
                                                 supabase_client.cache_verified_product({
                                                     "id": fb_prod.id,
