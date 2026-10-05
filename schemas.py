@@ -78,6 +78,9 @@ class ClinicalAssessment(BaseModel):
     matched_factors: List[str] = Field(default_factory=list, description="Specific ingredients or tokens that triggered this rule")
     confidence: SourceConfidence = Field(default=SourceConfidence.UNVERIFIED)
     source: str = Field(default="SafeBite Clinical Engine")
+    condition_overview: Optional[str] = Field(default=None, description="Medical background of the condition and why dietary limits apply")
+    offending_ingredients: List[Dict[str, str]] = Field(default_factory=list, description="List of offending ingredients with specific issues and physiological rationales")
+    clinical_action: Optional[str] = Field(default=None, description="Actionable recommendation or replacement strategy")
 
 # =========================================================================
 # PRODUCT WEB & RETAIL INTELLIGENCE SCHEMAS

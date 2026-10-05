@@ -251,7 +251,65 @@ class TestClinicalEngine(unittest.TestCase):
         status_c_hyp, ass_c_hyp, _ = ClinicalRuleEngine.evaluate(clean_prod, user_medical_history="Hypertension")
         self.assertEqual(status_c_hyp, ClinicalStatus.CLEAR)
 
+    def test_condition_overview_and_offending_ingredients_structure(self):
+        """Verify that condition_overview, offending_ingredients, and clinical_action are richly populated."""
+        sugary_salty_snack = Product(
+            id="SB-CONFLICT-001",
+            name="Sweet & Salty Snack",
+            brand="SnackCo",
+            nutrition=NutritionFacts(sugar_g=24.0, sodium_mg=520.0, calories=320),
+            ingredients=Ingredients(raw_text="Wheat flour, high fructose corn syrup, sugar, palm oil, salt, peanuts, monosodium glutamate."),
+            allergens=Allergens(contains=["Peanuts", "Wheat"]),
+            evidence=self.evidence
+        )
+        status, assessments, reasons = ClinicalRuleEngine.evaluate(
+            product=sugary_salty_snack,
+            user_medical_history="Type 2 Diabetes, Hypertension, Celiac Disease",
+            user_allergies=["Peanuts"]
+        )
+        self.assertEqual(status, ClinicalStatus.AVOID)
+
+        # 1. Peanut Allergy
+        peanut_assess = [a for a in assessments if "Peanut" in a.condition][0]
+        self.assertEqual(peanut_assess.status, ClinicalStatus.AVOID)
+        self.assertTrue(len(peanut_assess.condition_overview) > 20)
+        self.assertTrue(len(peanut_assess.offending_ingredients) >= 1)
+        self.assertIn("ingredient", peanut_assess.offending_ingredients[0])
+        self.assertIn("issue", peanut_assess.offending_ingredients[0])
+        self.assertIn("severity", peanut_assess.offending_ingredients[0])
+        self.assertIn("rationale", peanut_assess.offending_ingredients[0])
+        self.assertTrue(len(peanut_assess.clinical_action) > 10)
+
+        # 2. Type 2 Diabetes
+        diab_assess = [a for a in assessments if "Diabetes" in a.condition][0]
+        self.assertEqual(diab_assess.status, ClinicalStatus.AVOID)
+        self.assertTrue(len(diab_assess.condition_overview) > 20)
+        self.assertTrue(len(diab_assess.offending_ingredients) >= 1)
+        # Verify specific offending ingredients identified
+        offending_names = [o["ingredient"].lower() for o in diab_assess.offending_ingredients]
+        self.assertTrue(any("sugar" in n for n in offending_names))
+        self.assertTrue(len(diab_assess.clinical_action) > 10)
+
+        # 3. Hypertension
+        htn_assess = [a for a in assessments if "Hypertension" in a.condition][0]
+        self.assertEqual(htn_assess.status, ClinicalStatus.AVOID)
+        self.assertTrue(len(htn_assess.condition_overview) > 20)
+        self.assertTrue(len(htn_assess.offending_ingredients) >= 1)
+        htn_offending_names = [o["ingredient"].lower() for o in htn_assess.offending_ingredients]
+        self.assertTrue(any("sodium" in n for n in htn_offending_names))
+        self.assertTrue(len(htn_assess.clinical_action) > 10)
+
+        # 4. Celiac Disease
+        celiac_assess = [a for a in assessments if "Celiac" in a.condition][0]
+        self.assertEqual(celiac_assess.status, ClinicalStatus.AVOID)
+        self.assertTrue(len(celiac_assess.condition_overview) > 20)
+        self.assertTrue(len(celiac_assess.offending_ingredients) >= 1)
+        celiac_names = [o["ingredient"].lower() for o in celiac_assess.offending_ingredients]
+        self.assertTrue(any("wheat" in n for n in celiac_names))
+        self.assertTrue(len(celiac_assess.clinical_action) > 10)
+
 if __name__ == "__main__":
     unittest.main()
+
 
 

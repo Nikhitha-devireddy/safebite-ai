@@ -68,7 +68,10 @@ class ClinicalRuleEngine:
                         evidence="Data source provides no ingredient declarations or packaging lab panel.",
                         matched_factors=[],
                         confidence=SourceConfidence.UNVERIFIED,
-                        source="Packaging Audit"
+                        source="Packaging Audit",
+                        condition_overview=f"An allergy to {ua.title()} involves an immune-mediated hypersensitivity reaction. Ingesting targeted food proteins can trigger mast cell activation, hives, swelling, or systemic anaphylaxis.",
+                        offending_ingredients=[],
+                        clinical_action=f"Do not consume until official ingredient and allergen statements can be confirmed for {ua.title()}."
                     ))
             else:
                 allergen_hits = AllergenEngine.screen_product(product, cleaned_allergies)
@@ -87,13 +90,25 @@ class ClinicalRuleEngine:
                             evidence=f"Audited {len(ingredients.ingredient_list) if ingredients else 0} ingredients; zero triggers identified.",
                             matched_factors=[],
                             confidence=cls._get_product_confidence(product),
-                            source="Ingredient Panel Audit"
+                            source="Ingredient Panel Audit",
+                            condition_overview=f"Food allergies are IgE-mediated reactions to specific proteins. Complete absence of '{ua.title()}' in the ingredient list protects against allergic cascades and mucosal irritation.",
+                            offending_ingredients=[],
+                            clinical_action=f"Product is clinically clear of declared {ua.title()} allergen. Safe to consume within your dietary plan."
                         ))
                     else:
                         has_direct = any(h.detection_type in (AllergenDetectionType.DIRECT, AllergenDetectionType.DERIVATIVE) for h in ua_hits)
                         if has_direct:
                             direct_tokens = [h.matched_token for h in ua_hits if h.detection_type in (AllergenDetectionType.DIRECT, AllergenDetectionType.DERIVATIVE)]
                             evidence_snips = "; ".join([h.evidence_snippet for h in ua_hits[:2]])
+                            offending = []
+                            for h in ua_hits:
+                                if h.detection_type in (AllergenDetectionType.DIRECT, AllergenDetectionType.DERIVATIVE):
+                                    offending.append({
+                                        "ingredient": h.matched_token.title(),
+                                        "issue": f"{ua.title()} Allergen Protein",
+                                        "severity": "CRITICAL",
+                                        "rationale": f"Direct allergen or derivative '{h.matched_token}' detected. Ingestion can trigger rapid IgE-mediated histamine release, facial/lip swelling, bronchospasm, or anaphylaxis."
+                                    })
                             assessments.append(ClinicalAssessment(
                                 condition=f"{ua.title()} Allergy",
                                 status=ClinicalStatus.AVOID,
@@ -101,12 +116,21 @@ class ClinicalRuleEngine:
                                 evidence=evidence_snips,
                                 matched_factors=direct_tokens,
                                 confidence=SourceConfidence.HIGH,
-                                source="Ingredient Declaration"
+                                source="Ingredient Declaration",
+                                condition_overview=f"Allergy to {ua.title()} is a potentially life-threatening immune response. Even trace amounts of {ua.title()} proteins can bind to IgE antibodies on mast cells, triggering widespread inflammatory mediators.",
+                                offending_ingredients=offending,
+                                clinical_action=f"STRICT CONTRAINDICATION: Do not consume. Choose certified {ua.title()}-free products and carry emergency epinephrine if indicated."
                             ))
                         else:
                             # Precautionary / Cross-contact
                             trace_tokens = [h.matched_token for h in ua_hits]
                             evidence_snips = "; ".join([h.evidence_snippet for h in ua_hits[:2]])
+                            offending = [{
+                                "ingredient": f"Trace/Cross-Contact: {t.title()}",
+                                "issue": "Precautionary Allergen Labeling (PAL)",
+                                "severity": "HIGH",
+                                "rationale": f"Manufacturer warns that product is made in a facility or on machinery shared with {ua.title()}. Particulate cross-contamination cannot be ruled out."
+                            } for t in trace_tokens]
                             assessments.append(ClinicalAssessment(
                                 condition=f"{ua.title()} Allergy",
                                 status=ClinicalStatus.CAUTION,
@@ -114,7 +138,10 @@ class ClinicalRuleEngine:
                                 evidence=evidence_snips,
                                 matched_factors=trace_tokens,
                                 confidence=SourceConfidence.HIGH,
-                                source="Precautionary Statement (PAL)"
+                                source="Precautionary Statement (PAL)",
+                                condition_overview=f"Cross-contact occurs during manufacturing or packaging on shared equipment. Sensitive individuals can react to trace aerosolized or surface residues.",
+                                offending_ingredients=offending,
+                                clinical_action=f"Exercise high caution. Highly sensitive individuals should avoid products bearing shared-facility warnings for {ua.title()}."
                             ))
 
         # -------------------------------------------------------------
@@ -178,6 +205,15 @@ class ClinicalRuleEngine:
                 overall_status = ClinicalStatus.CLEAR
                 item_count = len(ingredients.ingredient_list) if (ingredients and ingredients.ingredient_list) else 1
                 compiled_reasons.append(f"✅ Verified {item_count} declared ingredients against general food safety guidelines.")
+                offending_additives = []
+                if ingredients and ingredients.additives:
+                    for add in ingredients.additives:
+                        offending_additives.append({
+                            "ingredient": add.title(),
+                            "issue": "Ultra-Processed Additive / Stabilizer",
+                            "severity": "CAUTION",
+                            "rationale": f"'{add}' is an industrial food additive. Frequent consumption may disrupt intestinal barrier integrity and reduce gut microbiome biodiversity."
+                        })
                 assessments.append(ClinicalAssessment(
                     condition="Ingredient & Additive Screening",
                     status=ClinicalStatus.CLEAR if (ingredients and ingredients.is_clean_label) else ClinicalStatus.CAUTION,
@@ -185,7 +221,10 @@ class ClinicalRuleEngine:
                     evidence=f"Audited ingredients: {', '.join(ingredients.ingredient_list[:6]) if ingredients and ingredients.ingredient_list else 'Declared'}",
                     matched_factors=ingredients.additives if ingredients else [],
                     confidence=cls._get_product_confidence(product),
-                    source="Ingredient Declaration Audit"
+                    source="Ingredient Declaration Audit",
+                    condition_overview="Industrial food additives, artificial preservatives, synthetic dyes, and chemical emulsifiers are evaluated for their impact on intestinal epithelial barrier integrity, microbiome homeostasis, and metabolic health.",
+                    offending_ingredients=offending_additives,
+                    clinical_action="Favor clean-label formulations with recognizable whole-food ingredients and minimal synthetic emulsifiers or preservatives." if offending_additives else "Verified clean-label formulation free of synthetic additives."
                 ))
         else:
             has_avoid = any(a.status == ClinicalStatus.AVOID for a in assessments)
@@ -374,6 +413,12 @@ class ClinicalRuleEngine:
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
 
+        diab_overview = (
+            "Type 2 Diabetes involves peripheral insulin resistance and progressive pancreatic beta-cell fatigue. "
+            "Refined free sugars and high-glycemic sweeteners rapidly absorb into circulating blood, inducing acute postprandial "
+            "glycemic excursions, endothelial oxidative damage, and elevating long-term HbA1c."
+        )
+
         # Comprehensive glycemic sweetener triggers in ingredients (deduplicating generic sugar)
         glycemic_sugars = [
             "high fructose corn syrup", "corn syrup", "glucose syrup",
@@ -407,6 +452,22 @@ class ClinicalRuleEngine:
                 reasons = [f"⚠️ HIGH GLYCEMIC RISK: Contains {sugar}g sugars per serving (exceeds safe limit of 5-10g for diabetes)."]
                 if found_sugars:
                     reasons.append(f"Sweeteners detected in ingredients: {', '.join(found_sugars[:3])}.")
+                
+                offending = []
+                offending.append({
+                    "ingredient": f"Total Sugars ({sugar}g/serving)",
+                    "issue": "Severe Glycemic Spike & Beta-Cell Stress",
+                    "severity": "CRITICAL" if sugar > 20.0 else "HIGH",
+                    "rationale": f"Supplies {sugar}g of simple sugars. Direct enzymatic breakdown floods the bloodstream with glucose, causing an immediate glycemic spike that exceeds diabetic insulin buffering capacity."
+                })
+                for s in found_sugars:
+                    offending.append({
+                        "ingredient": s.title(),
+                        "issue": "Rapid-Absorption Glycemic Sweetener",
+                        "severity": "HIGH",
+                        "rationale": f"'{s}' features a high glycemic index (GI), digesting almost instantaneously into circulating glucose and triggering intense insulin demand."
+                    })
+
                 assessments.append(ClinicalAssessment(
                     condition="Type 2 Diabetes / Glycemic Safety",
                     status=ClinicalStatus.AVOID,
@@ -414,9 +475,25 @@ class ClinicalRuleEngine:
                     evidence=f"Total Sugars: {sugar}g, Ingredients: {found_sugars[:3]}",
                     matched_factors=[f"Sugar: {sugar}g"] + found_sugars,
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=diab_overview,
+                    offending_ingredients=offending,
+                    clinical_action="AVOID OR STRICTLY RESTRICT: If consumed, limit to micro-portions (<15g) and combine with soluble viscous fiber (chia seeds, psyllium husk) or protein to slow gastric emptying and blunt glycemic curves."
                 ))
             elif sugar > Config.DIABETES_CAUTION_SUGAR_G:
+                offending = [{
+                    "ingredient": f"Moderate Sugar Content ({sugar}g/serving)",
+                    "issue": "Potential Postprandial Glucose Rise",
+                    "severity": "MODERATE",
+                    "rationale": f"Contains {sugar}g sugar (exceeds optimal strict cap of {Config.DIABETES_CAUTION_SUGAR_G}g). Requires carbohydrate counting."
+                }]
+                for s in found_sugars[:2]:
+                    offending.append({
+                        "ingredient": s.title(),
+                        "issue": "Declared Added Sweetener",
+                        "severity": "CAUTION",
+                        "rationale": f"Added '{s}' contributes to simple carbohydrate load. Pair with balanced fiber."
+                    })
                 assessments.append(ClinicalAssessment(
                     condition="Type 2 Diabetes / Glycemic Safety",
                     status=ClinicalStatus.CAUTION,
@@ -424,7 +501,10 @@ class ClinicalRuleEngine:
                     evidence=f"Total Sugars: {sugar}g (Threshold: {Config.DIABETES_CAUTION_SUGAR_G}g).",
                     matched_factors=[f"Sugar: {sugar}g"] + found_sugars,
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=diab_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Consume in moderation within daily carbohydrate allowances. Monitor 2-hour postprandial blood glucose or CGM trajectory."
                 ))
             else:
                 assessments.append(ClinicalAssessment(
@@ -434,7 +514,10 @@ class ClinicalRuleEngine:
                     evidence=f"Lab nutrition confirms {sugar}g sugars per serving (<= {Config.DIABETES_CAUTION_SUGAR_G}g).",
                     matched_factors=[],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=diab_overview,
+                    offending_ingredients=[],
+                    clinical_action="Clinically safe for diabetic glycemic control. Minimal simple sugars preserve stable glucose homeostasis."
                 ))
             return
 
@@ -444,6 +527,12 @@ class ClinicalRuleEngine:
             has_spike_syrup = any(s in found_sugars for s in high_risk_syrups)
             
             if has_spike_syrup or len(found_sugars) >= 2:
+                offending = [{
+                    "ingredient": s.title(),
+                    "issue": "Rapid-Spike Glycemic Sweetener / Syrup",
+                    "severity": "HIGH",
+                    "rationale": f"'{s}' contains unbound simple saccharides with very high glycemic impact, causing sharp post-meal blood sugar surges."
+                } for s in found_sugars]
                 assessments.append(ClinicalAssessment(
                     condition="Type 2 Diabetes / Glycemic Safety",
                     status=ClinicalStatus.AVOID,
@@ -451,9 +540,18 @@ class ClinicalRuleEngine:
                     evidence=f"Audited ingredients declare: {', '.join(found_sugars[:3])}.",
                     matched_factors=found_sugars,
                     confidence=SourceConfidence.HIGH,
-                    source="Ingredient Formulation Audit"
+                    source="Ingredient Formulation Audit",
+                    condition_overview=diab_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Avoid consumption. Seek alternative products sweetened naturally with stevia, monk fruit, or allulose."
                 ))
             else:
+                offending = [{
+                    "ingredient": found_sugars[0].title(),
+                    "issue": "Declared Refined Sugar",
+                    "severity": "MODERATE",
+                    "rationale": f"Declared sweetener '{found_sugars[0]}' raises glycemic index. Restrict portion."
+                }]
                 assessments.append(ClinicalAssessment(
                     condition="Type 2 Diabetes / Glycemic Safety",
                     status=ClinicalStatus.CAUTION,
@@ -461,7 +559,10 @@ class ClinicalRuleEngine:
                     evidence=f"Audited ingredients declare: {found_sugars[0]}.",
                     matched_factors=found_sugars,
                     confidence=SourceConfidence.HIGH,
-                    source="Ingredient Formulation Audit"
+                    source="Ingredient Formulation Audit",
+                    condition_overview=diab_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Consume cautiously in controlled portions to prevent unexpected glycemic elevation."
                 ))
         elif found_friendly:
             assessments.append(ClinicalAssessment(
@@ -471,7 +572,10 @@ class ClinicalRuleEngine:
                 evidence=f"Sweetener: {', '.join(found_friendly)}.",
                 matched_factors=[],
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=diab_overview,
+                offending_ingredients=[],
+                clinical_action="Excellent diabetic-friendly profile. Non-nutritive sweeteners provide sweetness without stimulating pancreatic insulin release."
             ))
         elif raw_ing:
             assessments.append(ClinicalAssessment(
@@ -481,7 +585,10 @@ class ClinicalRuleEngine:
                 evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero added sugars or glycemic syrups identified.",
                 matched_factors=[],
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=diab_overview,
+                offending_ingredients=[],
+                clinical_action="Naturally low glycemic impact. Safe for consistent glycemic control."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -491,7 +598,10 @@ class ClinicalRuleEngine:
                 evidence="No ingredients declaration provided.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Ingredient Audit"
+                source="Ingredient Audit",
+                condition_overview=diab_overview,
+                offending_ingredients=[],
+                clinical_action="Nutritional sugar table is missing. Verify before consuming to prevent inadvertent sugar spikes."
             ))
 
     @classmethod
@@ -499,6 +609,12 @@ class ClinicalRuleEngine:
         nut = product.nutrition
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        htn_overview = (
+            "Hypertension (chronically elevated arterial pressure) is exacerbated by dietary sodium ions. "
+            "Excess sodium increases renal water reabsorption and plasma osmolality, expanding extracellular blood volume "
+            "and augmenting peripheral vascular resistance, which places structural strain on cardiac myocytes and microvasculature."
+        )
 
         sodium_ingredients = [
             "monosodium glutamate", "msg", "sodium benzoate", "disodium phosphate",
@@ -512,6 +628,19 @@ class ClinicalRuleEngine:
         if nut and nut.sodium_mg is not None:
             sodium = nut.sodium_mg
             if sodium > Config.HYPERTENSION_MAX_SODIUM_MG:
+                offending = [{
+                    "ingredient": f"High Sodium ({sodium}mg/serving)",
+                    "issue": "Extracellular Fluid Volume Expansion",
+                    "severity": "HIGH",
+                    "rationale": f"Delivers {sodium}mg of sodium per serving (exceeds single-meal ceiling of {Config.HYPERTENSION_MAX_SODIUM_MG}mg). Increases systemic arterial wall tension and cardiac workload."
+                }]
+                for s in found_sodium:
+                    offending.append({
+                        "ingredient": s.title(),
+                        "issue": "Sodium-Bearing Compound / Preservative",
+                        "severity": "HIGH" if s in ["monosodium glutamate", "msg", "brine", "soy sauce"] else "MODERATE",
+                        "rationale": f"'{s}' contributes concentrated sodium ions, driving renal fluid retention and arterial vasoconstriction."
+                    })
                 assessments.append(ClinicalAssessment(
                     condition="Hypertension / Sodium Safety",
                     status=ClinicalStatus.AVOID,
@@ -519,9 +648,27 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Sodium: {sodium}mg/serving.",
                     matched_factors=[f"Sodium: {sodium}mg"] + found_sodium,
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=htn_overview,
+                    offending_ingredients=offending,
+                    clinical_action="AVOID OR STRICTLY LIMIT: Balance intake with potassium-rich whole foods (spinach, tender coconut water, banana) and maintain hydration to assist renal natriuresis."
                 ))
             elif sodium > Config.HYPERTENSION_LOW_SODIUM_MG or found_sodium:
+                offending = []
+                if sodium > Config.HYPERTENSION_LOW_SODIUM_MG:
+                    offending.append({
+                        "ingredient": f"Moderate Sodium ({sodium}mg/serving)",
+                        "issue": "Moderate Blood Volume Impact",
+                        "severity": "MODERATE",
+                        "rationale": f"Supplies {sodium}mg sodium (standard low-sodium limit is <= {Config.HYPERTENSION_LOW_SODIUM_MG}mg). Keep within daily 1,500mg DASH ceiling."
+                    })
+                elif found_sodium:
+                    offending.append({
+                        "ingredient": found_sodium[0].title(),
+                        "issue": "Declared Sodium Salt",
+                        "severity": "MODERATE",
+                        "rationale": f"Contains '{found_sodium[0]}'. Consume in moderation without adding supplemental table salt."
+                    })
                 assessments.append(ClinicalAssessment(
                     condition="Hypertension / Sodium Safety",
                     status=ClinicalStatus.CAUTION,
@@ -529,7 +676,10 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Sodium: {sodium}mg/serving (Low sodium benchmark is <= {Config.HYPERTENSION_LOW_SODIUM_MG}mg).",
                     matched_factors=[f"Sodium: {sodium}mg"] + found_sodium,
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=htn_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Consume in moderation. Avoid adding supplemental salt or combining with cured, pickled, or high-sodium foods."
                 ))
             else:
                 assessments.append(ClinicalAssessment(
@@ -539,13 +689,22 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Sodium: {sodium}mg/serving.",
                     matched_factors=[],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=htn_overview,
+                    offending_ingredients=[],
+                    clinical_action="Clinically safe for hypertensive blood pressure management. Meets DASH low-sodium criteria (<140mg/serving)."
                 ))
             return
 
         # Ingredient-based evaluation (when nutritional table is absent or not provided)
         if found_sodium:
             is_heavy_sodium = any(s in found_sodium for s in ["monosodium glutamate", "msg", "brine", "soy sauce"]) or len(found_sodium) >= 2
+            offending = [{
+                "ingredient": s.title(),
+                "issue": "Sodium-Bearing Ingredient / Flavor Enhancer",
+                "severity": "HIGH" if s in ["monosodium glutamate", "msg", "brine", "soy sauce"] else "MODERATE",
+                "rationale": f"'{s}' contributes bioavailable sodium, promoting vascular volume expansion and arterial wall stiffness."
+            } for s in found_sodium]
             assessments.append(ClinicalAssessment(
                 condition="Hypertension / Sodium Safety",
                 status=ClinicalStatus.AVOID if is_heavy_sodium else ClinicalStatus.CAUTION,
@@ -553,7 +712,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare: {', '.join(found_sodium)}.",
                 matched_factors=found_sodium,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=htn_overview,
+                offending_ingredients=offending,
+                clinical_action="Limit consumption or switch to low-sodium versions seasoned with potassium salts, herbs, or lemon juice."
             ))
         elif raw_ing:
             assessments.append(ClinicalAssessment(
@@ -563,7 +725,10 @@ class ClinicalRuleEngine:
                 evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero sodium compounds identified.",
                 matched_factors=[],
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=htn_overview,
+                offending_ingredients=[],
+                clinical_action="Naturally low in sodium. Safe for cardiac health and blood pressure regulation."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -573,7 +738,10 @@ class ClinicalRuleEngine:
                 evidence="No ingredients declaration provided.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Ingredient Audit"
+                source="Ingredient Audit",
+                condition_overview=htn_overview,
+                offending_ingredients=[],
+                clinical_action="Verify sodium label before consuming if on a strict sodium-restricted medical regimen."
             ))
 
     @classmethod
@@ -582,12 +750,24 @@ class ClinicalRuleEngine:
         allg = product.allergens
         raw_ing = (ing.raw_text or "").lower() if ing else ""
 
+        celiac_overview = (
+            "Celiac disease is an autoimmune enteropathy triggered by gluten prolamins (gliadin and glutenin) "
+            "present in wheat, barley, rye, and spelt. Ingesting gluten stimulates cytotoxic T-cell destruction of intestinal "
+            "villi, causing mucosal blunting, malabsorption of critical nutrients, and chronic systemic inflammation."
+        )
+
         gluten_grains = ["wheat", "barley", "rye", "spelt", "kamut", "triticale", "semolina", "atta", "maida", "durum"]
         found_grains = [g for g in gluten_grains if re.search(r"\b" + re.escape(g) + r"\b", raw_ing)]
 
         is_certified_free = allg and ("gluten free" in [f.lower() for f in allg.free_from])
 
         if found_grains:
+            offending = [{
+                "ingredient": g.title(),
+                "issue": "Gluten Storage Protein (Gliadin/Glutenin)",
+                "severity": "CRITICAL",
+                "rationale": f"'{g}' contains prolamin gluten peptides that trigger autoimmune enterocyte destruction and villous atrophy in Celiac patients."
+            } for g in found_grains]
             assessments.append(ClinicalAssessment(
                 condition="Celiac Disease / Gluten Safety",
                 status=ClinicalStatus.AVOID,
@@ -595,7 +775,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients explicitly declare {', '.join(found_grains)}.",
                 matched_factors=found_grains,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=celiac_overview,
+                offending_ingredients=offending,
+                clinical_action="STRICT ZERO-TOLERANCE AVOIDANCE: Substitute with certified gluten-free flours: buckwheat, amaranth, quinoa, millet, sorghum, or certified gluten-free oat flour."
             ))
         elif is_certified_free:
             assessments.append(ClinicalAssessment(
@@ -605,7 +788,10 @@ class ClinicalRuleEngine:
                 evidence="Product packaging carries official gluten-free certification claim.",
                 matched_factors=[],
                 confidence=allg.confidence,
-                source="Product Certifications"
+                source="Product Certifications",
+                condition_overview=celiac_overview,
+                offending_ingredients=[],
+                clinical_action="Clinically certified safe. Meets strict Codex Alimentarius gluten-free threshold (<20 ppm gluten)."
             ))
         elif not raw_ing and (not allg or not allg.contains):
             assessments.append(ClinicalAssessment(
@@ -615,12 +801,21 @@ class ClinicalRuleEngine:
                 evidence="Cannot confirm absence of wheat or cross-contamination.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Allergen Audit"
+                source="Allergen Audit",
+                condition_overview=celiac_overview,
+                offending_ingredients=[],
+                clinical_action="Do not consume until absence of gluten-containing grains is verified."
             ))
         else:
             # Check for may contain gluten
             traces = [t for t in (allg.may_contain if allg else []) if "gluten" in t.lower() or "wheat" in t.lower()]
             if traces:
+                offending = [{
+                    "ingredient": f"Cross-Contact: {traces[0]}",
+                    "issue": "Precautionary Gluten Cross-Contamination",
+                    "severity": "HIGH",
+                    "rationale": f"Shared manufacturing facility handles wheat/gluten. Particulate transfer may breach the 20 ppm safety limit."
+                }]
                 assessments.append(ClinicalAssessment(
                     condition="Celiac Disease / Gluten Safety",
                     status=ClinicalStatus.CAUTION,
@@ -628,7 +823,10 @@ class ClinicalRuleEngine:
                     evidence=f"Precautionary statement: {traces[0]}",
                     matched_factors=traces,
                     confidence=allg.confidence,
-                    source="Precautionary Statement"
+                    source="Precautionary Statement",
+                    condition_overview=celiac_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Exercise high caution: Patients with biopsy-confirmed Celiac should exclusively choose products certified gluten-free (<20 ppm)."
                 ))
             else:
                 assessments.append(ClinicalAssessment(
@@ -638,7 +836,10 @@ class ClinicalRuleEngine:
                     evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero wheat/barley/rye identified.",
                     matched_factors=[],
                     confidence=cls._get_product_confidence(product),
-                    source="Ingredient Panel"
+                    source="Ingredient Panel",
+                    condition_overview=celiac_overview,
+                    offending_ingredients=[],
+                    clinical_action="Clinically cleared: free of wheat, barley, and rye. Safe for gluten-restricted diets."
                 ))
 
     @classmethod
@@ -646,12 +847,24 @@ class ClinicalRuleEngine:
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
 
+        lactose_overview = (
+            "Lactose intolerance stems from deficient mucosal lactase enzyme in the brush border of enterocytes. "
+            "Undigested lactose disaccharides cannot be absorbed in the small intestine, drawing osmotic fluid into the bowel "
+            "and undergoing rapid colonic bacterial fermentation into gas (hydrogen, methane), cramps, bloating, and diarrhea."
+        )
+
         lactose_triggers = ["lactose", "milk", "skim milk", "whole milk", "milk powder", "whey", "curd", "paneer"]
         # Filter plant butters
         filtered = re.sub(r"\b(?:cocoa|cacao|peanut|almond|cashew|shea|apple|mango|coconut)\s+butter\b", " ", raw_ing)
         found = [t for t in lactose_triggers if re.search(r"\b" + re.escape(t) + r"\b", filtered)]
 
         if found:
+            offending = [{
+                "ingredient": t.title(),
+                "issue": "Intact Dairy Lactose Disaccharide",
+                "severity": "HIGH",
+                "rationale": f"'{t}' contains dairy lactose which cannot be hydrolyzed by lactase-deficient individuals, precipitating osmotic diarrhea and microbial fermentation."
+            } for t in found]
             assessments.append(ClinicalAssessment(
                 condition="Lactose Intolerance",
                 status=ClinicalStatus.AVOID,
@@ -659,7 +872,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare {', '.join(found)}.",
                 matched_factors=found,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=lactose_overview,
+                offending_ingredients=offending,
+                clinical_action="CONTRAINDICATED: Avoid or ingest exogenous lactase enzyme prior to consumption. Replace with plant-based milks (almond, oat, soy) or certified lactose-free dairy."
             ))
         elif not raw_ing:
             assessments.append(ClinicalAssessment(
@@ -669,7 +885,10 @@ class ClinicalRuleEngine:
                 evidence="Ingredient list is unverified.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Packaging Audit"
+                source="Packaging Audit",
+                condition_overview=lactose_overview,
+                offending_ingredients=[],
+                clinical_action="Lactose status cannot be verified from available data. Check dairy declarations on packaging."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -679,7 +898,10 @@ class ClinicalRuleEngine:
                 evidence="Zero milk or lactose solids declared.",
                 matched_factors=[],
                 confidence=cls._get_product_confidence(product),
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=lactose_overview,
+                offending_ingredients=[],
+                clinical_action="Naturally lactose-free. Safe for lactose-intolerant individuals."
             ))
 
     @classmethod
@@ -687,6 +909,12 @@ class ClinicalRuleEngine:
         nut = product.nutrition
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        constip_overview = (
+            "Chronic constipation and sluggish colonic motility are closely linked to insufficient dietary fiber "
+            "and ultra-refined starches. Insoluble fiber provides physical stool bulk and stimulates peristaltic contractions, "
+            "while soluble prebiotic fiber fuels short-chain fatty acid (SCFA) production for a healthy mucosal barrier."
+        )
 
         fiber_ingredients = [
             "psyllium", "psyllium husk", "flaxseed", "chia", "chia seeds", "oats", "oat bran",
@@ -707,9 +935,18 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Dietary Fiber: {fiber}g.",
                     matched_factors=[f"Fiber: {fiber}g"],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=constip_overview,
+                    offending_ingredients=[],
+                    clinical_action="Optimal dietary fiber profile. Enhances colonic motility and gut microbiome diversity."
                 ))
             elif fiber >= 2.0:
+                offending = [{
+                    "ingredient": f"Moderate Fiber ({fiber}g/serving)",
+                    "issue": "Sub-optimal Stool Bulk",
+                    "severity": "CAUTION",
+                    "rationale": "Moderate fiber density. Pair with whole plant foods to achieve daily 25-30g fiber targets."
+                }]
                 assessments.append(ClinicalAssessment(
                     condition="GI / Fiber Optimization",
                     status=ClinicalStatus.CAUTION,
@@ -717,9 +954,18 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Dietary Fiber: {fiber}g.",
                     matched_factors=[f"Fiber: {fiber}g"],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=constip_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Supplement with whole prebiotic fiber sources (chia seeds, flaxseeds, legumes) and maintain adequate hydration."
                 ))
             else:
+                offending = [{
+                    "ingredient": f"Low Dietary Fiber ({fiber}g/serving)",
+                    "issue": "Inadequate Stool Bulk Stimulus",
+                    "severity": "MODERATE",
+                    "rationale": "Insufficient dietary fiber fails to stimulate colon peristalsis and may worsen sluggish transit and hard stools."
+                }]
                 assessments.append(ClinicalAssessment(
                     condition="GI / Fiber Optimization",
                     status=ClinicalStatus.CAUTION,
@@ -727,7 +973,10 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Dietary Fiber: {fiber}g.",
                     matched_factors=[f"Fiber: {fiber}g"],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=constip_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Pair with insoluble fiber supplements (psyllium husk, oat bran) and drink at least 2.5L water daily."
                 ))
             return
 
@@ -740,9 +989,18 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare: {', '.join(found_fiber)}.",
                 matched_factors=found_fiber,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=constip_overview,
+                offending_ingredients=[],
+                clinical_action="Contains natural fiber-bearing whole grains and legumes to support regular elimination."
             ))
         elif found_refined:
+            offending = [{
+                "ingredient": r.title(),
+                "issue": "Stripped Refined Starch",
+                "severity": "MODERATE",
+                "rationale": f"'{r}' has been stripped of bran and germ, leaving low-fiber starches that slow digestive peristalsis."
+            } for r in found_refined]
             assessments.append(ClinicalAssessment(
                 condition="GI / Fiber Optimization",
                 status=ClinicalStatus.CAUTION,
@@ -750,7 +1008,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare: {', '.join(found_refined)}.",
                 matched_factors=found_refined,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=constip_overview,
+                offending_ingredients=offending,
+                clinical_action="Substitute with whole grain or multigrain alternatives rich in intact plant fiber."
             ))
         elif raw_ing:
             assessments.append(ClinicalAssessment(
@@ -760,7 +1021,10 @@ class ClinicalRuleEngine:
                 evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients.",
                 matched_factors=[],
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=constip_overview,
+                offending_ingredients=[],
+                clinical_action="Maintain balanced whole-food intake with adequate daily hydration."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -770,7 +1034,10 @@ class ClinicalRuleEngine:
                 evidence="No ingredients declaration provided.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Packaging Audit"
+                source="Packaging Audit",
+                condition_overview=constip_overview,
+                offending_ingredients=[],
+                clinical_action="Confirm fiber facts on packaging before relying on this food for digestive regularity."
             ))
 
     @classmethod
@@ -778,10 +1045,22 @@ class ClinicalRuleEngine:
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
 
+        gout_overview = (
+            "Gout and chronic renal impairment involve impaired clearance and elevated serum concentrations of uric acid. "
+            "Purine-rich ingredients catabolize into uric acid, which can precipitate into needle-shaped monosodium urate "
+            "crystals in articular synovial fluid or renal tubules, triggering acute gouty arthritis or nephrolithiasis."
+        )
+
         purine_triggers = ["anchovies", "sardines", "organ meat", "liver", "yeast extract", "brewer's yeast", "scallops"]
         found = [p for p in purine_triggers if p in raw_ing]
 
         if found:
+            offending = [{
+                "ingredient": p.title(),
+                "issue": "High Cellular Purine Density",
+                "severity": "CRITICAL",
+                "rationale": f"'{p}' contains concentrated purine nucleotides that rapidly metabolize into circulating uric acid, precipitating acute gout flares."
+            } for p in found]
             assessments.append(ClinicalAssessment(
                 condition="Gout / Renal Health",
                 status=ClinicalStatus.AVOID,
@@ -789,7 +1068,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare {', '.join(found)}.",
                 matched_factors=found,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=gout_overview,
+                offending_ingredients=offending,
+                clinical_action="STRICT AVOIDANCE: Do not consume. Increase hydration with alkaline water (fresh lemon) to facilitate renal urate clearance."
             ))
         elif not raw_ing:
             assessments.append(ClinicalAssessment(
@@ -799,7 +1081,10 @@ class ClinicalRuleEngine:
                 evidence="Ingredient declaration missing.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Packaging Audit"
+                source="Packaging Audit",
+                condition_overview=gout_overview,
+                offending_ingredients=[],
+                clinical_action="Purine and additive profile unverified. Verify ingredients prior to consumption."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -809,13 +1094,21 @@ class ClinicalRuleEngine:
                 evidence="Zero yeast extracts or high-purine animal byproducts.",
                 matched_factors=[],
                 confidence=cls._get_product_confidence(product),
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=gout_overview,
+                offending_ingredients=[],
+                clinical_action="Safe for gout and renal health. Low purine formulation minimizes serum urate load."
             ))
 
     @classmethod
     def _evaluate_vegan(cls, product: Product, assessments: List[ClinicalAssessment]) -> None:
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        vegan_overview = (
+            "Vegan dietary standards require 100% plant-based origin, strictly prohibiting animal flesh, "
+            "dairy products, egg proteins, honey, gelatin, and slaughter-derived additives."
+        )
 
         animal_byproducts = [
             "milk", "whey", "casein", "lactose", "ghee", "butter", "cheese", "curd",
@@ -826,6 +1119,12 @@ class ClinicalRuleEngine:
         found = [b for b in animal_byproducts if re.search(r"\b" + re.escape(b) + r"\b", filtered)]
 
         if found:
+            offending = [{
+                "ingredient": b.title(),
+                "issue": "Animal-Derived Ingredient / Secretion",
+                "severity": "HIGH",
+                "rationale": f"Contains '{b}', derived from animal farming or slaughter, conflicting with vegan standards."
+            } for b in found]
             assessments.append(ClinicalAssessment(
                 condition="100% Vegan Compliance",
                 status=ClinicalStatus.AVOID,
@@ -833,7 +1132,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare {', '.join(found)}.",
                 matched_factors=found,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=vegan_overview,
+                offending_ingredients=offending,
+                clinical_action="Non-vegan product. Choose certified 100% plant-based alternatives."
             ))
         elif not raw_ing:
             assessments.append(ClinicalAssessment(
@@ -843,7 +1145,10 @@ class ClinicalRuleEngine:
                 evidence="Cannot confirm absence of hidden animal byproducts.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Packaging Audit"
+                source="Packaging Audit",
+                condition_overview=vegan_overview,
+                offending_ingredients=[],
+                clinical_action="Vegan suitability unverified; check official packaging for green vegetarian/vegan logos."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -853,13 +1158,21 @@ class ClinicalRuleEngine:
                 evidence="All audited ingredients are plant or mineral derived.",
                 matched_factors=[],
                 confidence=cls._get_product_confidence(product),
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=vegan_overview,
+                offending_ingredients=[],
+                clinical_action="Certified compliant with strict vegan lifestyle."
             ))
 
     @classmethod
     def _evaluate_vegetarian(cls, product: Product, assessments: List[ClinicalAssessment]) -> None:
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        veg_overview = (
+            "Vegetarian standards require complete absence of animal meat, poultry, seafood, slaughter rennet, "
+            "gelatin, and animal fat byproducts."
+        )
 
         non_veg = [
             "chicken", "beef", "pork", "mutton", "fish", "salmon", "tuna", "shrimp",
@@ -869,6 +1182,12 @@ class ClinicalRuleEngine:
         found = [v for v in non_veg if re.search(r"\b" + re.escape(v) + r"\b", raw_ing)]
 
         if found:
+            offending = [{
+                "ingredient": v.title(),
+                "issue": "Animal Flesh / Slaughter Byproduct",
+                "severity": "CRITICAL",
+                "rationale": f"Contains '{v}', an animal slaughter derivative violating lacto-vegetarian criteria."
+            } for v in found]
             assessments.append(ClinicalAssessment(
                 condition="Vegetarian Compliance",
                 status=ClinicalStatus.AVOID,
@@ -876,7 +1195,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare {', '.join(found)}.",
                 matched_factors=found,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=veg_overview,
+                offending_ingredients=offending,
+                clinical_action="Non-vegetarian product. Look for green FSSAI vegetarian dot certification."
             ))
         elif not raw_ing:
             assessments.append(ClinicalAssessment(
@@ -886,7 +1208,10 @@ class ClinicalRuleEngine:
                 evidence="Cannot audit for hidden gelatin or animal enzymes.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Packaging Audit"
+                source="Packaging Audit",
+                condition_overview=veg_overview,
+                offending_ingredients=[],
+                clinical_action="Vegetarian status unverified; confirm packaging logo."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -896,7 +1221,10 @@ class ClinicalRuleEngine:
                 evidence="All audited ingredients comply with vegetarian dietary standards.",
                 matched_factors=[],
                 confidence=cls._get_product_confidence(product),
-                source="Ingredient Panel"
+                source="Ingredient Panel",
+                condition_overview=veg_overview,
+                offending_ingredients=[],
+                clinical_action="Verified 100% vegetarian-compliant."
             ))
 
     @classmethod
@@ -904,6 +1232,8 @@ class ClinicalRuleEngine:
         nut = product.nutrition
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        prot_overview = "High-protein dietary guidelines require >=10g protein per serving to support muscle synthesis and satiety."
 
         protein_sources = [
             "whey protein", "pea protein", "soy protein", "egg white", "collagen",
@@ -922,9 +1252,18 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Protein: {prot}g/serving.",
                     matched_factors=[f"Protein: {prot}g"],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=prot_overview,
+                    offending_ingredients=[],
+                    clinical_action="Optimal protein density for post-workout recovery or muscle preservation."
                 ))
             else:
+                offending = [{
+                    "ingredient": f"Protein Level ({prot}g/serving)",
+                    "issue": "Below High-Protein Benchmark",
+                    "severity": "CAUTION",
+                    "rationale": f"Delivers {prot}g protein, falling below the {Config.HIGH_PROTEIN_MIN_G}g target."
+                }]
                 assessments.append(ClinicalAssessment(
                     condition="High Protein Criterion",
                     status=ClinicalStatus.CAUTION,
@@ -932,7 +1271,10 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Protein: {prot}g/serving.",
                     matched_factors=[f"Protein: {prot}g"],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=prot_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Pair with high-protein sides (Greek yogurt, eggs, tofu, whey protein)."
                 ))
             return
 
@@ -945,7 +1287,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare: {', '.join(found_protein)}.",
                 matched_factors=found_protein,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=prot_overview,
+                offending_ingredients=[],
+                clinical_action="Formulated with recognizable protein sources."
             ))
         elif raw_ing:
             assessments.append(ClinicalAssessment(
@@ -955,7 +1300,10 @@ class ClinicalRuleEngine:
                 evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients.",
                 matched_factors=[],
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=prot_overview,
+                offending_ingredients=[],
+                clinical_action="Add a dedicated protein source to meet target protein goals."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -965,7 +1313,10 @@ class ClinicalRuleEngine:
                 evidence="No ingredients declaration provided.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Packaging Audit"
+                source="Packaging Audit",
+                condition_overview=prot_overview,
+                offending_ingredients=[],
+                clinical_action="Nutritional panel unverified."
             ))
 
     @classmethod
@@ -973,6 +1324,8 @@ class ClinicalRuleEngine:
         nut = product.nutrition
         ing = product.ingredients
         raw_ing = (ing.raw_text or "").lower() if ing else ""
+
+        sugar_overview = "Low-sugar dietary preferences require <=5g sugars per serving to prevent metabolic endotoxemia and insulin spikes."
 
         added_sugars = [
             "granulated sugar", "cane sugar", "brown sugar", "powdered sugar",
@@ -991,9 +1344,18 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Sugars: {sug}g/serving.",
                     matched_factors=[f"Sugar: {sug}g"],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=sugar_overview,
+                    offending_ingredients=[],
+                    clinical_action="Complies with strict low-sugar dietary protocols."
                 ))
             else:
+                offending = [{
+                    "ingredient": f"Sugars ({sug}g/serving)",
+                    "issue": "Exceeds Low-Sugar Limit",
+                    "severity": "HIGH",
+                    "rationale": f"Contains {sug}g sugar, exceeding the strict {Config.LOW_SUGAR_MAX_G}g low-sugar cap."
+                }]
                 assessments.append(ClinicalAssessment(
                     condition="Low Sugar Criterion",
                     status=ClinicalStatus.AVOID,
@@ -1001,12 +1363,21 @@ class ClinicalRuleEngine:
                     evidence=f"Reported Sugars: {sug}g/serving.",
                     matched_factors=[f"Sugar: {sug}g"],
                     confidence=nut.confidence,
-                    source=nut.source
+                    source=nut.source,
+                    condition_overview=sugar_overview,
+                    offending_ingredients=offending,
+                    clinical_action="Choose alternative products sweetened with erythritol, stevia, or monk fruit."
                 ))
             return
 
         # Ingredient-based evaluation
         if found_sugars:
+            offending = [{
+                "ingredient": s.title(),
+                "issue": "Declared Added Sweetener",
+                "severity": "HIGH",
+                "rationale": f"'{s}' is an added simple sugar, conflicting with low-sugar objectives."
+            } for s in found_sugars[:2]]
             assessments.append(ClinicalAssessment(
                 condition="Low Sugar Criterion",
                 status=ClinicalStatus.AVOID,
@@ -1014,7 +1385,10 @@ class ClinicalRuleEngine:
                 evidence=f"Ingredients declare: {', '.join(found_sugars[:3])}.",
                 matched_factors=found_sugars,
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=sugar_overview,
+                offending_ingredients=offending,
+                clinical_action="Fails low-sugar standards; avoid or limit to small taste portions."
             ))
         elif raw_ing:
             assessments.append(ClinicalAssessment(
@@ -1024,7 +1398,10 @@ class ClinicalRuleEngine:
                 evidence=f"Audited {len(ing.ingredient_list) if ing else 0} ingredients; zero added sugars identified.",
                 matched_factors=[],
                 confidence=SourceConfidence.HIGH,
-                source="Ingredient Formulation Audit"
+                source="Ingredient Formulation Audit",
+                condition_overview=sugar_overview,
+                offending_ingredients=[],
+                clinical_action="Zero added sugars detected in ingredients."
             ))
         else:
             assessments.append(ClinicalAssessment(
@@ -1034,5 +1411,8 @@ class ClinicalRuleEngine:
                 evidence="No ingredients declaration provided.",
                 matched_factors=[],
                 confidence=SourceConfidence.UNVERIFIED,
-                source="Packaging Audit"
+                source="Packaging Audit",
+                condition_overview=sugar_overview,
+                offending_ingredients=[],
+                clinical_action="Confirm sugar nutrition facts on packaging."
             ))

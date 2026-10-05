@@ -19,7 +19,7 @@ from ocr_engine import OcrEngine
 from nutrition_extractor import NutritionExtractor
 from product_normalizer import ProductNormalizer
 from clinical_engine import ClinicalRuleEngine
-from components.cards import render_verdict_badge
+from components.cards import render_verdict_badge, render_clinical_assessment_cards
 import supabase_client
 
 def record_to_history(product: Product, input_mode: str):
@@ -60,14 +60,11 @@ def record_to_history(product: Product, input_mode: str):
 def render_scanner_view(product_sources: ProductSources):
     """Renders the multi-mode scanner interface."""
     st.subheader("🛡️ Product Safety & Clinical Allergen Audit Lab")
-    st.markdown("Inspect any food or beverage item through live camera, label photo upload, barcode lookup, or direct ingredient text.")
-
     check_mode = st.radio(
         "Choose Inspection Method:",
         [
             "📷 Live Camera Scanner",
             "📸 Upload Label Photo",
-            "🔢 Barcode Lookup",
             "🌐 Product URL (Auto-Inspection)",
             "📝 Paste Ingredients List",
             "🎙️ Voice Query Assistant"
@@ -181,102 +178,7 @@ def render_scanner_view(product_sources: ProductSources):
                     else:
                         st.error("Failed to detect clear ingredient text. Please try a higher-resolution photo.")
 
-    # MODE 3: BARCODE LOOKUP
-    elif "🔢 Barcode" in check_mode:
-        st.markdown("#### 🔢 Instant Barcode Scanner & Clinical Lookup")
-        st.caption("Enter any 8, 12, or 13-digit UPC/EAN barcode. Queries Supabase Cloud Cache, Open Food Facts, GS1 registries, and live FMCG catalogs.")
-
-        # Quick test pills
-        st.markdown("<div style='font-size:0.82rem; font-weight:600; color:#64748B; margin-bottom:4px;'>⚡ Quick Test Barcodes:</div>", unsafe_allow_html=True)
-        col_t1, col_t2 = st.columns(2)
-        with col_t1:
-            if st.button("🍫 Cadbury Dairy Milk", use_container_width=True, key="tb_cadbury"):
-                st.session_state["barcode_lookup_input"] = "8901233030548"
-        with col_t2:
-            if st.button("🍜 Maggi 2-Min Noodles", use_container_width=True, key="tb_maggi"):
-                st.session_state["barcode_lookup_input"] = "8901058852875"
-
-        col_t3, col_t4 = st.columns(2)
-        with col_t3:
-            if st.button("🧈 Amul Pure Ghee", use_container_width=True, key="tb_amul"):
-                st.session_state["barcode_lookup_input"] = "8906001020301"
-        with col_t4:
-            if st.button("🥣 Rolled Oats", use_container_width=True, key="tb_oats"):
-                st.session_state["barcode_lookup_input"] = "0041220576920"
-
-        bc_col1, bc_col2 = st.columns([3, 1])
-        with bc_col1:
-            default_bc = st.session_state.get("barcode_lookup_input", "")
-            barcode_input = st.text_input(
-                "Enter 8, 12, or 13-digit EAN/UPC Barcode:",
-                value=default_bc,
-                placeholder="e.g. 8901233030548 or 8901058852875",
-                key="barcode_lookup_input_field"
-            )
-        with bc_col2:
-            st.write("")
-            st.write("")
-            btn_bc = st.button("Lookup Barcode", type="primary", use_container_width=True, key="btn_lookup_bc")
-
-        active_bc = barcode_input.strip()
-        if btn_bc and active_bc:
-            with st.spinner(f"Querying Supabase, Open Food Facts & GS1 registries for barcode {active_bc}..."):
-                checked_product = product_sources.fetch_by_barcode(
-                    barcode=active_bc,
-                    user_medical_history=st.session_state.get("medical_history", ""),
-                    user_allergies=st.session_state.get("allergies_list", []),
-                    location=st.session_state.get("location_dict", {}).get("city", "Bengaluru"),
-                    food_preferences=st.session_state.get("food_preferences", "")
-                )
-                if checked_product:
-                    record_to_history(checked_product, "Barcode Lookup")
-                    st.session_state["active_product_detail"] = checked_product
-                    portion_info = checked_product.recommended_portion.get("portion_limit") if checked_product.recommended_portion else None
-                    portion_snippet = f" | ⚖️ Recommended: {portion_info}" if portion_info else ""
-                    st.success(f"✅ Verified: **{checked_product.name}** by *{checked_product.brand}*{portion_snippet}")
-                else:
-                    origin_hint = "Indian Origin (GS1 prefix 890)" if active_bc.startswith("890") else "International GS1"
-                    st.warning(f"Barcode '{active_bc}' ({origin_hint}) is not yet cataloged in public food registries.")
-                    st.info("💡 You can run an instant audit for this barcode by typing its product name below:")
-                    col_f1, col_f2 = st.columns([3, 1])
-                    with col_f1:
-                        fb_name = st.text_input("Product Name & Brand:", placeholder="e.g. Dairy Milk Chocolate or Amul Butter", key=f"fb_name_{active_bc}")
-                    with col_f2:
-                        st.write("")
-                        st.write("")
-                        if st.button("Audit Product", key=f"btn_fb_{active_bc}", type="primary"):
-                            if fb_name.strip():
-                                with st.spinner(f"Retrieving verified formulation for {fb_name}..."):
-                                    fb_prod = product_sources.fetch_by_query(
-                                        query=fb_name.strip(),
-                                        user_medical_history=st.session_state.get("medical_history", ""),
-                                        user_allergies=st.session_state.get("allergies_list", []),
-                                        location=st.session_state.get("location_dict", {}).get("city", "Bengaluru"),
-                                        food_preferences=st.session_state.get("food_preferences", "")
-                                    )
-                                    if fb_prod:
-                                        fb_prod.barcode = active_bc
-                                        record_to_history(fb_prod, f"Barcode Assist ({active_bc})")
-                                        st.session_state["active_product_detail"] = fb_prod
-                                        try:
-                                            if supabase_client.is_supabase_enabled():
-                                                supabase_client.cache_verified_product({
-                                                    "id": fb_prod.id,
-                                                    "barcode": active_bc,
-                                                    "name": fb_prod.name,
-                                                    "brand": fb_prod.brand,
-                                                    "category": fb_prod.category or "General Grocery",
-                                                    "nutrition_facts": fb_prod.nutrition.model_dump() if fb_prod.nutrition else {},
-                                                    "ingredients": fb_prod.ingredients.raw_text if fb_prod.ingredients else "",
-                                                    "allergens": fb_prod.allergens.contains if fb_prod.allergens else [],
-                                                    "nova_group": 4
-                                                })
-                                        except Exception:
-                                            pass
-                                        st.success(f"✅ Audited & Linked to Barcode: **{fb_prod.name}**")
-                                        st.rerun()
-
-    # MODE 4: PRODUCT URL
+    # MODE 3: PRODUCT URL
     elif "🌐 Product URL" in check_mode:
         url_input = st.text_input("Enter product web page URL:", placeholder="https://world.openfoodfacts.org/product/...", key="url_check_input")
         if st.button("Audit URL Content Now", type="primary", key="btn_audit_url"):
@@ -299,7 +201,7 @@ def render_scanner_view(product_sources: ProductSources):
                     else:
                         st.error("Could not extract ingredient data from this URL. Use 'Paste Ingredients List' instead.")
 
-    # MODE 5: PASTE INGREDIENTS
+    # MODE 4: PASTE INGREDIENTS
     elif "📝 Paste Ingredients" in check_mode:
         prod_title_input = st.text_input("Product Title / Brand Name:", value="Custom Food Item", key="paste_title_input")
         paste_text = st.text_area("Paste Ingredient Declaration:", placeholder="Ingredients: Wheat flour, sugar, palm oil, whey...", height=120, key="paste_ing_input")
@@ -335,7 +237,7 @@ def render_scanner_view(product_sources: ProductSources):
                     st.session_state["active_product_detail"] = checked_product
                     st.success(f"Audit completed: {checked_product.name}")
 
-    # MODE 6: VOICE QUERY ASSISTANT
+    # MODE 5: VOICE QUERY ASSISTANT
     else:
         st.markdown("##### 🎙️ Hands-Free Natural Voice Assistant")
         voice_query = st.text_input("Speak or Type Question:", placeholder="e.g. 'Can I eat Haldiram Bhujia with Hypertension?'", key="voice_query_text")
@@ -394,4 +296,16 @@ def render_scanner_view(product_sources: ProductSources):
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Structured Condition & Offending Ingredients Breakdown
+        if active_p.clinical_assessments:
+            st.markdown("<div style='margin-top:20px;'></div>", unsafe_allow_html=True)
+            st.markdown("#### 🩺 Condition Analysis & Ingredient Suitability")
+            st.caption("Detailed medical evaluation explaining condition context, specific offending ingredients, and actionable clinical advice.")
+            render_clinical_assessment_cards(active_p.clinical_assessments)
+        elif active_p.health_safety_reasons:
+            st.markdown("#### 🩺 Clinical Safety Summary")
+            for r in active_p.health_safety_reasons:
+                st.info(f"• {r}")
+
 
