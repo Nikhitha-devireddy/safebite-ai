@@ -42,22 +42,24 @@ def render_swaps_view():
         ("🍿 Roasted Makhana", "savory snacks")
     ]
 
-    cols_c = st.columns(5)
-    for c_idx, (c_label, c_query) in enumerate(chips):
-        with cols_c[c_idx]:
-            if st.button(c_label, key=f"chip_swap_{c_idx}", use_container_width=True):
-                with st.spinner(f"Screening catalog for '{c_query}'..."):
-                    recs = recommend_safe_products(
-                        user_name=c_user,
-                        medical_history=c_med,
-                        allergies=c_allergies,
-                        food_preferences=c_pref,
-                        craving_query=c_query,
-                        location=c_loc_dict
-                    )
-                    st.session_state["craving_results"] = recs
-                    st.session_state["craving_last_query"] = c_query
-                st.rerun()
+    for i in range(0, len(chips), 3):
+        chunk = chips[i:i+3]
+        cols_c = st.columns(len(chunk))
+        for c_idx, (c_label, c_query) in enumerate(chunk):
+            with cols_c[c_idx]:
+                if st.button(c_label, key=f"chip_swap_{i+c_idx}", use_container_width=True):
+                    with st.spinner(f"Screening catalog for '{c_query}'..."):
+                        recs = recommend_safe_products(
+                            user_name=c_user,
+                            medical_history=c_med,
+                            allergies=c_allergies,
+                            food_preferences=c_pref,
+                            craving_query=c_query,
+                            location=c_loc_dict
+                        )
+                        st.session_state["craving_results"] = recs
+                        st.session_state["craving_last_query"] = c_query
+                    st.rerun()
 
     st.markdown("---")
 

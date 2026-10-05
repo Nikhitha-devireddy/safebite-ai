@@ -42,7 +42,7 @@ def render_history_view():
         with st.container():
             st.markdown(f"""
             <div style="background: white; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px 18px; margin-bottom: 10px;">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
                     <div>
                         <span style="font-size:0.75rem; color:#64748B; text-transform:uppercase; font-weight:700;">{brand} · {input_mode}</span>
                         <h4 style="margin:2px 0 4px 0; color:#0F172A;">{prod_name}</h4>

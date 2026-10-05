@@ -134,7 +134,7 @@ def render_scanner_view(product_sources: ProductSources):
         uploaded_file = st.file_uploader("Upload front or back packaging label (JPG/PNG):", type=["jpg", "jpeg", "png"], key="upload_label_input")
         if uploaded_file is not None:
             image_bytes = uploaded_file.getvalue()
-            st.image(image_bytes, caption="Uploaded Packaging Image", width=280)
+            st.image(image_bytes, caption="Uploaded Packaging Image", use_container_width=True)
             if st.button("Extract & Run Clinical Audit", type="primary", key="btn_audit_upload"):
                 with st.spinner("Executing Multimodal OCR and clinical rule evaluation..."):
                     img_url = None
@@ -188,15 +188,21 @@ def render_scanner_view(product_sources: ProductSources):
 
         # Quick test pills
         st.markdown("<div style='font-size:0.82rem; font-weight:600; color:#64748B; margin-bottom:4px;'>⚡ Quick Test Barcodes:</div>", unsafe_allow_html=True)
-        col_t1, col_t2, col_t3, col_t4 = st.columns(4)
-        if col_t1.button("🍫 Cadbury Dairy Milk", use_container_width=True, key="tb_cadbury"):
-            st.session_state["barcode_lookup_input"] = "8901233030548"
-        if col_t2.button("🍜 Maggi 2-Min Noodles", use_container_width=True, key="tb_maggi"):
-            st.session_state["barcode_lookup_input"] = "8901058852875"
-        if col_t3.button("🧈 Amul Pure Ghee", use_container_width=True, key="tb_amul"):
-            st.session_state["barcode_lookup_input"] = "8906001020301"
-        if col_t4.button("🥣 Rolled Oats", use_container_width=True, key="tb_oats"):
-            st.session_state["barcode_lookup_input"] = "0041220576920"
+        col_t1, col_t2 = st.columns(2)
+        with col_t1:
+            if st.button("🍫 Cadbury Dairy Milk", use_container_width=True, key="tb_cadbury"):
+                st.session_state["barcode_lookup_input"] = "8901233030548"
+        with col_t2:
+            if st.button("🍜 Maggi 2-Min Noodles", use_container_width=True, key="tb_maggi"):
+                st.session_state["barcode_lookup_input"] = "8901058852875"
+
+        col_t3, col_t4 = st.columns(2)
+        with col_t3:
+            if st.button("🧈 Amul Pure Ghee", use_container_width=True, key="tb_amul"):
+                st.session_state["barcode_lookup_input"] = "8906001020301"
+        with col_t4:
+            if st.button("🥣 Rolled Oats", use_container_width=True, key="tb_oats"):
+                st.session_state["barcode_lookup_input"] = "0041220576920"
 
         bc_col1, bc_col2 = st.columns([3, 1])
         with bc_col1:

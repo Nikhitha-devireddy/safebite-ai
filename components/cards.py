@@ -56,8 +56,8 @@ def render_clinical_assessment_cards(assessments: List[Any]):
         badge = render_verdict_badge(status_val)
         with st.container():
             st.markdown(f"""
-            <div style="border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 16px; margin-bottom: 10px; background: #FFFFFF;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <div style="border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: #FFFFFF; box-sizing: border-box;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 6px;">
                     <strong>{condition}</strong>
                     {badge}
                 </div>

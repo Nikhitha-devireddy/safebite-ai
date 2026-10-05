@@ -42,50 +42,38 @@ def render_home_view(search_pipeline: ProductSearchPipeline):
         st.caption("Click any preset to automatically populate clinical parameters and execute verified queries:")
         
         all_presets = get_all_presets()
-        row1 = all_presets[:6]
-        row2 = all_presets[6:]
-        
-        cols1 = st.columns(6)
-        for i, preset in enumerate(row1):
-            with cols1[i]:
-                if st.button(
-                    f"{preset.icon} {preset.name}",
-                    key=f"btn_pre_{preset.id}",
-                    use_container_width=True,
-                    help=preset.tagline
-                ):
-                    apply_preset_to_session(preset.id)
-                    st.toast(f"Applied preset: {preset.name}", icon=preset.icon)
-                    st.rerun()
-
-        cols2 = st.columns(len(row2))
-        for j, preset in enumerate(row2):
-            with cols2[j]:
-                if st.button(
-                    f"{preset.icon} {preset.name}",
-                    key=f"btn_pre_{preset.id}",
-                    use_container_width=True,
-                    help=preset.tagline
-                ):
-                    apply_preset_to_session(preset.id)
-                    st.toast(f"Applied preset: {preset.name}", icon=preset.icon)
-                    st.rerun()
+        for i in range(0, len(all_presets), 3):
+            chunk = all_presets[i:i+3]
+            cols = st.columns(len(chunk))
+            for idx, preset in enumerate(chunk):
+                with cols[idx]:
+                    if st.button(
+                        f"{preset.icon} {preset.name}",
+                        key=f"btn_pre_{preset.id}",
+                        use_container_width=True,
+                        help=preset.tagline
+                    ):
+                        apply_preset_to_session(preset.id)
+                        st.toast(f"Applied preset: {preset.name}", icon=preset.icon)
+                        st.rerun()
 
         st.markdown("---")
         st.markdown("##### 🇮🇳 Indian Cultural, Religious & Clinical Presets:")
         indian_presets = get_indian_presets()
-        cols_ind = st.columns(len(indian_presets))
-        for k, ipreset in enumerate(indian_presets):
-            with cols_ind[k]:
-                if st.button(
-                    f"{ipreset.icon} {ipreset.name}",
-                    key=f"btn_pre_ind_{ipreset.id}",
-                    use_container_width=True,
-                    help=ipreset.tagline
-                ):
-                    apply_preset_to_session(ipreset.id)
-                    st.toast(f"Applied preset: {ipreset.name}", icon=ipreset.icon)
-                    st.rerun()
+        for j in range(0, len(indian_presets), 3):
+            ind_chunk = indian_presets[j:j+3]
+            cols_ind = st.columns(len(ind_chunk))
+            for k, ipreset in enumerate(ind_chunk):
+                with cols_ind[k]:
+                    if st.button(
+                        f"{ipreset.icon} {ipreset.name}",
+                        key=f"btn_pre_ind_{ipreset.id}",
+                        use_container_width=True,
+                        help=ipreset.tagline
+                    ):
+                        apply_preset_to_session(ipreset.id)
+                        st.toast(f"Applied preset: {ipreset.name}", icon=ipreset.icon)
+                        st.rerun()
 
     # Search Execution
     if run_home_search and home_query.strip():

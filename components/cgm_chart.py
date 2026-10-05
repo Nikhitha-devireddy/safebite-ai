@@ -75,14 +75,14 @@ def render_cgm_trajectory_chart(
 
     # Layout styling
     fig.update_layout(
-        title=dict(text=title, font=dict(family="Plus Jakarta Sans", size=15, color="#0F172A")),
+        title=dict(text=title, font=dict(family="Plus Jakarta Sans", size=14, color="#0F172A")),
         xaxis=dict(title="Minutes Post-Prandial", dtick=30, range=[0, 185], gridcolor="#F1F5F9"),
-        yaxis=dict(title="Blood Glucose (mg/dL)", range=[65, max_y], gridcolor="#F1F5F9"),
-        margin=dict(l=40, r=20, t=45, b=40),
+        yaxis=dict(title="Glucose (mg/dL)", range=[65, max_y], gridcolor="#F1F5F9"),
+        margin=dict(l=28, r=14, t=38, b=35),
         plot_bgcolor="#FFFFFF",
         paper_bgcolor="#FFFFFF",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        height=380
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        height=360
     )
 
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, config={"responsive": True, "displayModeBar": False})
