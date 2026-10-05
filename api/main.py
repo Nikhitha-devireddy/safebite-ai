@@ -259,6 +259,37 @@ def audit_product(req: AuditRequest):
     return result
 
 
+@app.get("/api/v1/barcode/{barcode}")
+async def lookup_barcode_endpoint(
+    barcode: str,
+    medical_history: str = Query("General Health", description="Patient medical history / chronic conditions"),
+    allergies: str = Query("", description="Comma-separated declared patient allergies"),
+    preferences: str = Query("", description="Dietary preferences or cultural guardrails"),
+    location: str = Query("Bengaluru", description="User metro location")
+):
+    """
+    Looks up a food product by 8, 12, or 13-digit barcode across
+    Supabase cache, Open Food Facts, and live GS1/retail databases,
+    returning deterministic clinical safety and portion recommendations.
+    """
+    from product_sources import ProductSources
+    ps = ProductSources()
+    allergies_list = [a.strip() for a in allergies.split(",") if a.strip()]
+    product = ps.fetch_by_barcode(
+        barcode=barcode,
+        user_medical_history=medical_history,
+        user_allergies=allergies_list,
+        location=location,
+        food_preferences=preferences
+    )
+    if not product:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Barcode '{barcode}' could not be resolved in verified lab or retail databases."
+        )
+    return product.model_dump()
+
+
 @app.post("/api/v1/ocr")
 async def ocr_packaging(
     image: UploadFile = File(...),

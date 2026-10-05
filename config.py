@@ -23,7 +23,7 @@ class Config:
     HTTP_CONNECT_TIMEOUT = 3.0    # Seconds
     HTTP_READ_TIMEOUT = 5.0       # Seconds
     RETAILER_TIMEOUT = 4.0        # Seconds per retailer query
-    OFF_API_TIMEOUT = 5.0         # Seconds for Open Food Facts
+    OFF_API_TIMEOUT = 7.0         # Seconds for Open Food Facts (robust against cloud latency)
     MAX_RETRIES = 1               # Bounded retries to avoid latency spikes
     MAX_CONCURRENT_WORKERS = 6    # Parallel scraping threads
     
@@ -149,9 +149,8 @@ class Config:
     ]
 
     # ---------------------------------------------------------
-    # User-Agent Policy (Respectful and Professional)
+    # User-Agent Policy (Respectful, Professional, and WAF-Friendly)
     # ---------------------------------------------------------
     USER_AGENT = (
-        "SafeBite-Food-Safety-Intelligence/2.0 "
-        "(Clinical Food Safety Verification Engine; respectful bot; +https://safebite.ai)"
+        "SafeBiteAI/2.0 (Clinical Food Safety Platform; +https://safebite.ai; contact: support@safebite.ai)"
     )
