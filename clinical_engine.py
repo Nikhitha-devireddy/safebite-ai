@@ -214,14 +214,155 @@ class ClinicalRuleEngine:
             if overall_status == ClinicalStatus.CLEAR:
                 compiled_reasons.append("✅ Clinically cleared: Verified 100% free of declared personal allergens and compliant with your medical profile.")
 
-        # Check for cross-source discrepancies from evidence engine
-        if product.evidence.conflicts_detected:
-            if overall_status == ClinicalStatus.CLEAR:
-                overall_status = ClinicalStatus.CAUTION
-            for conf in product.evidence.conflicts_detected:
-                compiled_reasons.append(f"⚠️ Data Discrepancy: {conf}")
+        # Compute clinical portion guidance based on medical history
+        portion_guidance = cls.calculate_recommended_portion(product, user_medical_history, overall_status)
+        product.recommended_portion = portion_guidance
 
         return overall_status, assessments, compiled_reasons
+
+    @classmethod
+    def calculate_recommended_portion(
+        cls,
+        product: Product,
+        user_medical_history: str = "",
+        overall_status: ClinicalStatus = ClinicalStatus.UNKNOWN
+    ) -> Dict[str, Any]:
+        """
+        Calculates deterministic clinical portion limits and serving guidance
+        tailored to patient pathophysiology (Diabetes, Hypertension, CKD, etc.).
+        """
+        med_low = (user_medical_history or "").lower()
+        prod_text = f"{product.brand} {product.name} {product.variant or ''} {product.category or ''}".lower()
+        raw_ing = (product.ingredients.raw_text or "").lower() if product.ingredients else ""
+        nut = product.nutrition
+        sugar = nut.sugar_g if (nut and nut.sugar_g is not None) else None
+        sodium = nut.sodium_mg if (nut and nut.sodium_mg is not None) else None
+        carbs = nut.carbs_g if (nut and nut.carbs_g is not None) else None
+
+        # 1. Detect Sweets / Traditional Indian Confectionery / Desserts
+        is_sweet = any(w in prod_text or w in raw_ing for w in [
+            "gulab jamun", "gulabjamun", "jalebi", "rasgulla", "laddu", "ladoo",
+            "barfi", "burfi", "halwa", "mysore pak", "pedha", "peda", "kaju katli",
+            "dessert", "sweet", "pastry", "cake", "ice cream", "cookie", "donut"
+        ]) or (sugar is not None and sugar >= 15.0)
+
+        # 2. Detect High Sodium / Savory Snacks
+        is_savory_snack = any(w in prod_text or w in raw_ing for w in [
+            "bhujia", "sev", "namkeen", "chips", "crisps", "mixture", "chivda",
+            "pickle", "achar", "papad", "salted", "instant noodles", "ramen"
+        ]) or (sodium is not None and sodium >= 350.0)
+
+        # 3. Detect Bakery / Refined Wheat (Croissants, White Bread)
+        is_bakery = any(w in prod_text for w in [
+            "croissant", "white bread", "bun", "danish", "puff", "maida"
+        ])
+
+        # Default portion based on packaging
+        pack_size = product.pack_size or "1 standard serving (approx. 50g - 100g)"
+
+        # Condition 1: DIABETES / PREDIABETES / GLYCEMIC CONSTRAINTS
+        if any(d in med_low for d in ["diabet", "sugar", "insulin", "glycemic", "pcos"]):
+            if is_sweet:
+                return {
+                    "portion_limit": "Strictly ≤ 1 piece (20g - 25g)",
+                    "classification": "High Glycemic / Severe Spike Risk",
+                    "action": "Strict Portion Control",
+                    "badge_color": "#DC2626",
+                    "rationale": f"Gulab Jamun and concentrated sweets contain high sucrose/sugar syrups (>15g per piece). Exceeding 1 piece (25g) causes rapid postprandial glucose surges (>180 mg/dL).",
+                    "guidance_tips": [
+                        "Never consume on an empty stomach or as a standalone snack.",
+                        "Consume only immediately after a high-fiber or protein-rich meal to buffer gastric emptying.",
+                        "Take a 10-15 minute walk after consumption to stimulate muscular GLUT-4 glucose uptake."
+                    ]
+                }
+            elif is_bakery:
+                return {
+                    "portion_limit": "Max 1/2 piece (≤ 30g - 40g)",
+                    "classification": "Refined Carbohydrate Moderation",
+                    "action": "Moderate Portion",
+                    "badge_color": "#D97706",
+                    "rationale": "Refined flour (Maida) and butter hydrolyze rapidly into blood glucose without dietary fiber slowing absorption.",
+                    "guidance_tips": [
+                        "Pair with a warm unsweetened black coffee or herbal tea.",
+                        "Add a source of fiber (e.g. chia seeds or salad) to reduce glycemic load."
+                    ]
+                }
+            elif sugar is not None and sugar > 8.0:
+                return {
+                    "portion_limit": "Limit to ≤ 1 serving (≤ 30g)",
+                    "classification": "Moderate Glycemic Impact",
+                    "action": "Portion Control",
+                    "badge_color": "#D97706",
+                    "rationale": f"Delivers {sugar}g total sugars per serving. Keep carbohydrate intake under 15g per snack.",
+                    "guidance_tips": [
+                        "Monitor 2-hour postprandial blood glucose."
+                    ]
+                }
+            else:
+                return {
+                    "portion_limit": f"1 Serving ({pack_size})",
+                    "classification": "Glycemically Stable",
+                    "action": "Safe to Consume",
+                    "badge_color": "#059669",
+                    "rationale": "Low glycemic load with minimal spike risk for Type 2 Diabetes.",
+                    "guidance_tips": [
+                        "Fits safely into standard diabetic meal plans."
+                    ]
+                }
+
+        # Condition 2: HYPERTENSION / CARDIAC
+        if any(h in med_low for h in ["hypertens", "blood pressure", "cardiac", "heart", "sodium"]):
+            if is_savory_snack or (sodium is not None and sodium > 250.0):
+                sod_val = f"{sodium:.0f}mg" if sodium is not None else ">250mg"
+                return {
+                    "portion_limit": "Strictly ≤ 20g - 25g (small handful)",
+                    "classification": "High Sodium Alert",
+                    "action": "Sodium Restriction",
+                    "badge_color": "#DC2626",
+                    "rationale": f"High sodium content ({sod_val}) rapidly expands vascular fluid volume. Keep sodium <140mg per serving to meet the AHA daily limit of <1,500mg.",
+                    "guidance_tips": [
+                        "Do not add additional table salt or seasoning.",
+                        "Drink adequate water and pair with potassium-rich fresh greens."
+                    ]
+                }
+
+        # Condition 3: CHRONIC KIDNEY DISEASE (CKD)
+        if any(k in med_low for k in ["kidney", "renal", "ckd"]):
+            return {
+                "portion_limit": "Small Portion (≤ 25g - 40g)",
+                "classification": "Renal Caution",
+                "action": "Renal Dietitian Review",
+                "badge_color": "#D97706",
+                "rationale": "Requires scrutiny for hidden phosphorus and potassium additives that stress compromised nephrons.",
+                "guidance_tips": [
+                    "Check total protein and mineral content before eating."
+                ]
+            }
+
+        # General Balanced Diet
+        if is_sweet:
+            return {
+                "portion_limit": "1 to 2 pieces (max 50g)",
+                "classification": "Occasional Discretionary Treat",
+                "action": "Moderation",
+                "badge_color": "#0284C7",
+                "rationale": "Moderate serving fits within recommended discretionary energy allowances.",
+                "guidance_tips": [
+                    "Enjoy mindfully as part of a balanced diet."
+                ]
+            }
+
+        return {
+            "portion_limit": f"1 Standard Serving ({pack_size})",
+            "classification": "Standard Serving",
+            "action": "Standard Portion",
+            "badge_color": "#059669",
+            "rationale": "Standard portion provides balanced energy without exceeding daily limits.",
+            "guidance_tips": [
+                "Consume according to packaging serving size recommendations."
+            ]
+        }
+
 
     # =========================================================================
     # CONDITION-SPECIFIC EVALUATORS

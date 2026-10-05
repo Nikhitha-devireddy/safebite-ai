@@ -38,10 +38,39 @@ class OcrAnalysisResult(BaseModel):
     confidence: SourceConfidence = Field(default=SourceConfidence.UNVERIFIED)
     error_message: Optional[str] = None
 
+    @property
+    def ingredients_text(self) -> str:
+        return (self.ingredients.raw_text if self.ingredients else "") or self.raw_text
+
+    @property
+    def nutrition_facts(self) -> Optional[NutritionFacts]:
+        return self.nutrition
+
 class OcrEngine:
     """
     Multimodal packaging and label OCR engine with deterministic clinical reasoning.
     """
+
+    @classmethod
+    def analyze_image_bytes(
+        cls,
+        image_bytes: bytes,
+        mime_type: str = "image/jpeg",
+        user_name: str = "User",
+        medical_history: str = "",
+        allergies: Optional[List[str]] = None,
+        food_preferences: str = ""
+    ) -> OcrAnalysisResult:
+        """Convenience method for direct byte analysis."""
+        return cls.analyze_label_image(
+            image_bytes=image_bytes,
+            mime_type=mime_type,
+            user_name=user_name,
+            medical_history=medical_history,
+            allergies=allergies,
+            food_preferences=food_preferences
+        )
+
 
     @classmethod
     def validate_image(cls, image_bytes: bytes) -> Tuple[bool, str]:

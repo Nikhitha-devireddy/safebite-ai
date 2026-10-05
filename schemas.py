@@ -203,3 +203,4 @@ class Product(BaseModel):
     health_safety_reasons: List[str] = Field(default_factory=list)
     clinical_assessments: List[ClinicalAssessment] = Field(default_factory=list, description="Condition-specific clinical evaluation list")
     identity_confidence: ProductIdentityConfidence = Field(default=ProductIdentityConfidence.UNVERIFIED, description="Confidence in variant matching")
+    recommended_portion: Optional[Dict[str, Any]] = Field(default=None, description="Clinical portion limit and serving guidance based on medical history")

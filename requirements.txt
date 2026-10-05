@@ -1,9 +1,14 @@
 langgraph
+streamlit>=1.40.0
 google-genai
-pydantic
+groq
+pydantic>=2.9.0
 python-dotenv
 requests
 beautifulsoup4
-streamlit
-groq
 Pillow
+supabase>=2.30.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+plotly>=5.24.0
+python-multipart
