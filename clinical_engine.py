@@ -264,7 +264,7 @@ class ClinicalRuleEngine:
         if any(d in med_low for d in ["diabet", "sugar", "insulin", "glycemic", "pcos"]):
             if is_sweet:
                 return {
-                    "portion_limit": "Strictly ≤ 1 piece (20g - 25g)",
+                    "portion_limit": "Strictly <= 1 piece (20g - 25g)",
                     "classification": "High Glycemic / Severe Spike Risk",
                     "action": "Strict Portion Control",
                     "badge_color": "#DC2626",
@@ -277,7 +277,7 @@ class ClinicalRuleEngine:
                 }
             elif is_bakery:
                 return {
-                    "portion_limit": "Max 1/2 piece (≤ 30g - 40g)",
+                    "portion_limit": "Max 1/2 piece (<= 30g - 40g)",
                     "classification": "Refined Carbohydrate Moderation",
                     "action": "Moderate Portion",
                     "badge_color": "#D97706",
@@ -289,7 +289,7 @@ class ClinicalRuleEngine:
                 }
             elif sugar is not None and sugar > 8.0:
                 return {
-                    "portion_limit": "Limit to ≤ 1 serving (≤ 30g)",
+                    "portion_limit": "Limit to <= 1 serving (<= 30g)",
                     "classification": "Moderate Glycemic Impact",
                     "action": "Portion Control",
                     "badge_color": "#D97706",
@@ -315,7 +315,7 @@ class ClinicalRuleEngine:
             if is_savory_snack or (sodium is not None and sodium > 250.0):
                 sod_val = f"{sodium:.0f}mg" if sodium is not None else ">250mg"
                 return {
-                    "portion_limit": "Strictly ≤ 20g - 25g (small handful)",
+                    "portion_limit": "Strictly <= 20g - 25g (small handful)",
                     "classification": "High Sodium Alert",
                     "action": "Sodium Restriction",
                     "badge_color": "#DC2626",
@@ -329,7 +329,7 @@ class ClinicalRuleEngine:
         # Condition 3: CHRONIC KIDNEY DISEASE (CKD)
         if any(k in med_low for k in ["kidney", "renal", "ckd"]):
             return {
-                "portion_limit": "Small Portion (≤ 25g - 40g)",
+                "portion_limit": "Small Portion (<= 25g - 40g)",
                 "classification": "Renal Caution",
                 "action": "Renal Dietitian Review",
                 "badge_color": "#D97706",
